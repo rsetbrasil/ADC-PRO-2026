@@ -1,0 +1,294 @@
+
+
+'use client';
+
+import { useState, useMemo, useEffect } from 'react';
+import { useAdmin, useAdminData } from '@/context/AdminContext';
+import { useAuth } from '@/context/AuthContext';
+import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
+import { DollarSign, History, PiggyBank, BadgePercent, Eye, Undo2 } from 'lucide-react';
+import { format, parseISO } from 'date-fns';
+import { ptBR } from 'date-fns/locale';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import Link from 'next/link';
+import { Button } from '@/components/ui/button';
+import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription, AlertDialogFooter, AlertDialogHeader, AlertDialogTitle, AlertDialogTrigger } from '@/components/ui/alert-dialog';
+import { useAudit } from '@/context/AuditContext';
+
+
+const formatCurrency = (value: number) => {
+  return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
+};
+
+export default function MyCommissionsPage() {
+  const { reverseCommissionPayment } = useAdmin();
+  const { orders, commissionPayments } = useAdminData();
+  const { user } = useAuth();
+  const { logAction } = useAudit();
+
+  const isManagerOrAdmin = user?.role === 'admin' || user?.role === 'gerente';
+  
+  const pendingCommissions = useMemo(() => {
+    if (!user || !orders) return [];
+    
+    let userOrders = orders.filter(o => {
+      const isPending = o.status === 'Entregue' && typeof o.commission === 'number' && o.commission > 0 && !o.commissionPaid;
+      if (!isPending) return false;
+      if (isManagerOrAdmin) return true; // Manager/Admin sees all
+      return o.sellerId === user.id; // Seller sees only their own
+    });
+    return userOrders;
+  }, [orders, user, isManagerOrAdmin]);
+
+  const totalPending = pendingCommissions.reduce((acc, order) => acc + (order.commission || 0), 0);
+
+  const myPaidCommissions = useMemo(() => {
+    if (!user || !commissionPayments) return [];
+    return commissionPayments
+      .filter(p => p.sellerId === user.id)
+      .sort((a,b) => parseISO(b.paymentDate).getTime() - parseISO(a.paymentDate).getTime());
+  }, [commissionPayments, user]);
+
+
+  if (!user) {
+    return <p>Carregando...</p>;
+  }
+
+
+  return (
+    <div className="space-y-8">
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2">
+            <BadgePercent className="h-6 w-6" />
+            Minhas Comissões
+          </CardTitle>
+          <CardDescription>
+            Acompanhe suas comissões a receber e o histórico de pagamentos.
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+            <div className="grid gap-4 md:grid-cols-2 mb-8">
+                <Card className="bg-amber-500/10 border-amber-500/20">
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">Saldo a Receber</CardTitle>
+                        <DollarSign className="h-4 w-4 text-amber-600" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold text-amber-600">{formatCurrency(totalPending)}</div>
+                        <p className="text-xs text-muted-foreground">Comissões de {pendingCommissions.length} vendas entregues.</p>
+                    </CardContent>
+                </Card>
+                <Card className="bg-green-500/10 border-green-500/20">
+                    <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                        <CardTitle className="text-sm font-medium">Total Já Recebido</CardTitle>
+                        <PiggyBank className="h-4 w-4 text-green-600" />
+                    </CardHeader>
+                    <CardContent>
+                        <div className="text-2xl font-bold text-green-600">{formatCurrency(myPaidCommissions.reduce((acc, p) => acc + p.amount, 0))}</div>
+                        <p className="text-xs text-muted-foreground">Total de {myPaidCommissions.length} pagamentos recebidos.</p>
+                    </CardContent>
+                </Card>
+            </div>
+
+            <Tabs defaultValue="pending">
+                <TabsList>
+                    <TabsTrigger value="pending">Comissões Pendentes</TabsTrigger>
+                    <TabsTrigger value="history">Meus Pagamentos</TabsTrigger>
+                    {isManagerOrAdmin && <TabsTrigger value="all_history">Histórico Geral</TabsTrigger>}
+                </TabsList>
+                <TabsContent value="pending" className="mt-4">
+                     <Card>
+                        <CardHeader>
+                            <CardTitle>{isManagerOrAdmin ? 'Comissões Pendentes (Todos os Vendedores)' : 'Minhas Comissões a Receber'}</CardTitle>
+                            <CardDescription>{isManagerOrAdmin ? 'Lista de todas as vendas concluídas de todos os vendedores, cuja comissão ainda não foi paga.' : 'Esta é a lista de todas as suas vendas concluídas cuja comissão ainda não foi paga.'}</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                             <div className="rounded-md border">
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead>Data da Venda</TableHead>
+                                            {isManagerOrAdmin && <TableHead>Vendedor</TableHead>}
+                                            <TableHead>Pedido ID</TableHead>
+                                            <TableHead>Cliente</TableHead>
+                                            <TableHead className="text-right">Valor da Comissão</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {pendingCommissions.length > 0 ? (
+                                            pendingCommissions.map(order => (
+                                                <TableRow key={order.id}>
+                                                    <TableCell>{format(parseISO(order.date), "dd/MM/yyyy")}</TableCell>
+                                                    {isManagerOrAdmin && <TableCell>{order.sellerName}</TableCell>}
+                                                    <TableCell className="font-mono">{order.id}</TableCell>
+                                                    <TableCell>{order.customer.name}</TableCell>
+                                                    <TableCell className="text-right font-semibold">{formatCurrency(order.commission || 0)}</TableCell>
+                                                </TableRow>
+                                            ))
+                                        ) : (
+                                            <TableRow>
+                                                <TableCell colSpan={isManagerOrAdmin ? 5 : 4} className="h-24 text-center">
+                                                  {isManagerOrAdmin ? 'Nenhuma comissão pendente para a equipe.' : 'Você não tem comissões pendentes.'}
+                                                </TableCell>
+                                            </TableRow>
+                                        )}
+                                    </TableBody>
+                                </Table>
+                            </div>
+                        </CardContent>
+                     </Card>
+                </TabsContent>
+                <TabsContent value="history" className="mt-4">
+                     <Card>
+                        <CardHeader>
+                            <CardTitle>Meus Pagamentos Recebidos</CardTitle>
+                             <CardDescription>Histórico de todos os pagamentos de comissão que você já recebeu.</CardDescription>
+                        </CardHeader>
+                        <CardContent>
+                             <div className="rounded-md border">
+                                <Table>
+                                    <TableHeader>
+                                        <TableRow>
+                                            <TableHead>Data do Pagamento</TableHead>
+                                            <TableHead>Período</TableHead>
+                                            <TableHead className="text-right">Valor Recebido</TableHead>
+                                            <TableHead className="text-right">Ação</TableHead>
+                                        </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                        {myPaidCommissions.length > 0 ? (
+                                            myPaidCommissions.map(payment => (
+                                                <TableRow key={payment.id}>
+                                                    <TableCell>{format(parseISO(payment.paymentDate), "dd/MM/yyyy")}</TableCell>
+                                                    <TableCell className="capitalize">{payment.period}</TableCell>
+                                                    <TableCell className="text-right font-semibold">{formatCurrency(payment.amount)}</TableCell>
+                                                    <TableCell className="text-right">
+                                                        <div className="flex justify-end gap-2">
+                                                            <Button variant="outline" size="sm" asChild>
+                                                                <Link href={`/admin/comprovante-comissao/${payment.id}`}>
+                                                                    <Eye className="mr-2 h-4 w-4" />
+                                                                    Ver Comprovante
+                                                                </Link>
+                                                            </Button>
+                                                             {isManagerOrAdmin && (
+                                                                <AlertDialog>
+                                                                    <AlertDialogTrigger asChild>
+                                                                        <Button variant="destructive" outline size="sm">
+                                                                            <Undo2 className="mr-2 h-4 w-4" />
+                                                                            Estornar
+                                                                        </Button>
+                                                                    </AlertDialogTrigger>
+                                                                    <AlertDialogContent>
+                                                                        <AlertDialogHeader>
+                                                                            <AlertDialogTitle>Confirmar Estorno?</AlertDialogTitle>
+                                                                            <AlertDialogDescription>
+                                                                                Esta ação não pode ser desfeita. O pagamento será excluído e as comissões dos pedidos voltarão a ficar pendentes.
+                                                                            </AlertDialogDescription>
+                                                                        </AlertDialogHeader>
+                                                                        <AlertDialogFooter>
+                                                                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                                                            <AlertDialogAction onClick={() => reverseCommissionPayment(payment.id, logAction, user)}>
+                                                                                Sim, estornar
+                                                                            </AlertDialogAction>
+                                                                        </AlertDialogFooter>
+                                                                    </AlertDialogContent>
+                                                                </AlertDialog>
+                                                            )}
+                                                        </div>
+                                                    </TableCell>
+                                                </TableRow>
+                                            ))
+                                        ) : (
+                                            <TableRow>
+                                                <TableCell colSpan={4} className="h-24 text-center">Nenhum pagamento recebido ainda.</TableCell>
+                                            </TableRow>
+                                        )}
+                                    </TableBody>
+                                </Table>
+                            </div>
+                        </CardContent>
+                     </Card>
+                </TabsContent>
+                {isManagerOrAdmin && (
+                    <TabsContent value="all_history" className="mt-4">
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>Histórico Geral de Pagamentos</CardTitle>
+                                <CardDescription>Histórico de todos os pagamentos de comissão para todos os vendedores.</CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="rounded-md border">
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead>Data</TableHead>
+                                                <TableHead>Vendedor</TableHead>
+                                                <TableHead>Período</TableHead>
+                                                <TableHead className="text-right">Valor</TableHead>
+                                                <TableHead className="text-right">Ação</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {commissionPayments && commissionPayments.length > 0 ? (
+                                                commissionPayments.sort((a,b) => parseISO(b.paymentDate).getTime() - parseISO(a.paymentDate).getTime()).map(payment => (
+                                                    <TableRow key={payment.id}>
+                                                        <TableCell>{format(parseISO(payment.paymentDate), "dd/MM/yyyy")}</TableCell>
+                                                        <TableCell>{payment.sellerName}</TableCell>
+                                                        <TableCell className="capitalize">{payment.period}</TableCell>
+                                                        <TableCell className="text-right font-semibold">{formatCurrency(payment.amount)}</TableCell>
+                                                        <TableCell className="text-right">
+                                                            <div className="flex justify-end gap-2">
+                                                                <Button variant="outline" size="sm" asChild>
+                                                                    <Link href={`/admin/comprovante-comissao/${payment.id}`}>
+                                                                        <Eye className="mr-2 h-4 w-4" />
+                                                                        Ver Comprovante
+                                                                    </Link>
+                                                                </Button>
+                                                                <AlertDialog>
+                                                                    <AlertDialogTrigger asChild>
+                                                                        <Button variant="destructive" outline size="sm">
+                                                                            <Undo2 className="mr-2 h-4 w-4" />
+                                                                            Estornar
+                                                                        </Button>
+                                                                    </AlertDialogTrigger>
+                                                                    <AlertDialogContent>
+                                                                        <AlertDialogHeader>
+                                                                            <AlertDialogTitle>Confirmar Estorno?</AlertDialogTitle>
+                                                                            <AlertDialogDescription>
+                                                                                Esta ação não pode ser desfeita. O pagamento será excluído e as comissões dos pedidos voltarão a ficar pendentes.
+                                                                            </AlertDialogDescription>
+                                                                        </AlertDialogHeader>
+                                                                        <AlertDialogFooter>
+                                                                            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                                                            <AlertDialogAction onClick={() => reverseCommissionPayment(payment.id, logAction, user)}>
+                                                                                Sim, estornar
+                                                                            </AlertDialogAction>
+                                                                        </AlertDialogFooter>
+                                                                    </AlertDialogContent>
+                                                                </AlertDialog>
+                                                            </div>
+                                                        </TableCell>
+                                                    </TableRow>
+                                                ))
+                                            ) : (
+                                                <TableRow>
+                                                    <TableCell colSpan={5} className="h-24 text-center">Nenhum pagamento foi realizado ainda.</TableCell>
+                                                </TableRow>
+                                            )}
+                                        </TableBody>
+                                    </Table>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    </TabsContent>
+                )}
+            </Tabs>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}
+
+    
