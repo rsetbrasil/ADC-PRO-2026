@@ -2,7 +2,7 @@
 
 'use client';
 
-import { useState } from 'react';
+import { useMemo, useState } from 'react';
 import Image from 'next/image';
 import { useAdmin } from '@/context/AdminContext';
 import { useData } from '@/context/DataContext';
@@ -10,7 +10,7 @@ import type { Product } from '@/lib/types';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { MoreHorizontal, PlusCircle, Trash, Edit, PackageSearch, Eye, EyeOff } from 'lucide-react';
+import { MoreHorizontal, PlusCircle, Trash, Edit, PackageSearch, Eye, EyeOff, Search } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -28,6 +28,7 @@ import ProductForm from '@/components/ProductForm';
 import { useAuth } from '@/context/AuthContext';
 import { useAudit } from '@/context/AuditContext';
 import { Badge } from '@/components/ui/badge';
+import { Input } from '@/components/ui/input';
 
 const formatCurrency = (value: number) => {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
@@ -40,6 +41,7 @@ export default function ManageProductsPage() {
     const [productToEdit, setProductToEdit] = useState<Product | null>(null);
     const { user } = useAuth();
     const { logAction } = useAudit();
+    const [search, setSearch] = useState('');
 
     const handleAddNew = () => {
         setProductToEdit(null);
@@ -55,6 +57,24 @@ export default function ManageProductsPage() {
         deleteProduct(productId, logAction, user);
     }
 
+    const filteredProducts = useMemo(() => {
+        const q = search.trim().toLowerCase();
+        if (!q) return products;
+        return products.filter((p) => {
+            const haystack = [
+                p.name,
+                p.code,
+                p.category,
+                p.subcategory,
+                p.id,
+            ]
+                .filter(Boolean)
+                .join(' ')
+                .toLowerCase();
+            return haystack.includes(q);
+        });
+    }, [products, search]);
+
     return (
         <>
             <Card>
@@ -69,7 +89,18 @@ export default function ManageProductsPage() {
                     </Button>
                 </CardHeader>
                 <CardContent>
-                    {products.length > 0 ? (
+                    <div className="mb-4">
+                        <div className="relative max-w-md">
+                            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+                            <Input
+                                placeholder="Buscar por nome, código, categoria..."
+                                className="pl-10"
+                                value={search}
+                                onChange={(e) => setSearch(e.target.value)}
+                            />
+                        </div>
+                    </div>
+                    {filteredProducts.length > 0 ? (
                         <div className="rounded-md border">
                             <Table>
                                 <TableHeader>
@@ -85,7 +116,7 @@ export default function ManageProductsPage() {
                                     </TableRow>
                                 </TableHeader>
                                 <TableBody>
-                                    {products.map((product) => (
+                                    {filteredProducts.map((product) => (
                                         <TableRow key={product.id}>
                                             <TableCell>
                                                 <div className="relative h-12 w-12 rounded-md overflow-hidden bg-muted">
@@ -145,8 +176,8 @@ export default function ManageProductsPage() {
                     ) : (
                         <div className="text-center py-16 text-muted-foreground border-2 border-dashed rounded-lg">
                             <PackageSearch className="mx-auto h-12 w-12" />
-                            <h3 className="mt-4 text-lg font-semibold">Nenhum produto cadastrado</h3>
-                            <p className="mt-1 text-sm">Adicione seu primeiro produto para começar a vender.</p>
+                            <h3 className="mt-4 text-lg font-semibold">Nenhum produto encontrado</h3>
+                            <p className="mt-1 text-sm">Ajuste a busca ou adicione um novo produto.</p>
                         </div>
                     )}
                 </CardContent>

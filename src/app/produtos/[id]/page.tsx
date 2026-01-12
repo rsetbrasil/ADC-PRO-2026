@@ -8,11 +8,12 @@ import Image from 'next/image';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Separator } from '@/components/ui/separator';
-import { ArrowLeft, ShoppingCart, Info } from 'lucide-react';
+import { ArrowLeft, ShoppingCart, Info, Search } from 'lucide-react';
 import { useEffect, useState, useMemo } from 'react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Carousel, CarouselContent, CarouselItem, CarouselNext, CarouselPrevious } from "@/components/ui/carousel";
 import { Alert, AlertDescription } from '@/components/ui/alert';
+import { Input } from '@/components/ui/input';
 import type { Product } from '@/lib/types';
 import { useData } from '@/context/DataContext';
 import CountdownTimer from '@/components/CountdownTimer';
@@ -25,7 +26,7 @@ const formatCurrency = (value: number) => {
 export default function ProductDetailPage() {
   const params = useParams();
   const router = useRouter();
-  const { addToCart, setIsCartOpen } = useCart();
+  const { addToCart, setIsCartOpen, headerSearch, setHeaderSearch } = useCart();
   const { products, isLoading: isProductsLoading } = useData();
   const id = params.id as string;
 
@@ -74,6 +75,23 @@ export default function ProductDetailPage() {
         <ArrowLeft className="mr-2 h-4 w-4" />
         Voltar
       </Button>
+      <form
+        onSubmit={(e) => {
+          e.preventDefault();
+          router.push('/#catalog');
+        }}
+        className="mb-8 md:hidden"
+      >
+        <div className="relative">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground" />
+          <Input
+            placeholder="Buscar produtos..."
+            className="pl-10"
+            value={headerSearch}
+            onChange={(e) => setHeaderSearch(e.target.value)}
+          />
+        </div>
+      </form>
       <div className="grid md:grid-cols-2 gap-8 lg:gap-12">
         <div>
            <Carousel className="w-full">

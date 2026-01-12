@@ -55,6 +55,7 @@ export const initialPermissions: RolePermissions = {
 export function hasAccess(role: UserRole, section: AppSection, permissions: RolePermissions): boolean {
     if (role === 'admin') return true; // Admin always has access
     if (role === 'gerente' && section === 'financeiro') return true;
+    if (role === 'vendedor' && section === 'produtos') return true;
     const rolePermissions = permissions[role];
     if (!rolePermissions) {
         return false;
