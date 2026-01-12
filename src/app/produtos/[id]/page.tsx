@@ -140,6 +140,11 @@ export default function ProductDetailPage() {
           <Separator className="my-6" />
 
           <div className="space-y-4">
+            {product.onSale && typeof product.originalPrice === 'number' && product.originalPrice > product.price && (
+              <p className="text-base text-muted-foreground line-through">
+                {formatCurrency(product.originalPrice)}
+              </p>
+            )}
             <p className="text-4xl font-bold text-foreground">
               {formatCurrency(product.price)}
             </p>
