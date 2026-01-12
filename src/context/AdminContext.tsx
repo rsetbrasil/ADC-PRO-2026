@@ -525,6 +525,15 @@ export const AdminProvider = ({ children }: { children: ReactNode }) => {
       if (!newProduct.promotionEndDate) {
         delete newProduct.promotionEndDate;
       }
+
+      if (
+        !newProduct.onSale ||
+        typeof newProduct.originalPrice !== 'number' ||
+        Number.isNaN(newProduct.originalPrice) ||
+        newProduct.originalPrice <= 0
+      ) {
+        delete newProduct.originalPrice;
+      }
       
       const productRef = doc(db, 'products', newProductId);
       setDoc(productRef, newProduct).then(() => {
@@ -549,6 +558,15 @@ export const AdminProvider = ({ children }: { children: ReactNode }) => {
     
     if (!productToUpdate.promotionEndDate) {
         delete productToUpdate.promotionEndDate;
+    }
+
+    if (
+      !productToUpdate.onSale ||
+      typeof productToUpdate.originalPrice !== 'number' ||
+      Number.isNaN(productToUpdate.originalPrice) ||
+      productToUpdate.originalPrice <= 0
+    ) {
+      delete productToUpdate.originalPrice;
     }
     
     setDoc(productRef, productToUpdate, { merge: true }).then(() => {

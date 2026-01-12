@@ -164,6 +164,9 @@ export default function Home() {
                                     <p className="text-muted-foreground text-sm mt-1 mb-3 h-10 overflow-hidden">{product.description}</p>
                                 </div>
                                 <div className="mt-auto">
+                                  {typeof product.originalPrice === 'number' && product.originalPrice > product.price && (
+                                    <p className="text-sm text-muted-foreground line-through">{formatCurrency(product.originalPrice)}</p>
+                                  )}
                                   <p className="text-3xl font-bold text-accent">{formatCurrency(product.price)}</p>
                                   <Button className="mt-3 w-full md:w-auto">Ver Detalhes</Button>
                                 </div>

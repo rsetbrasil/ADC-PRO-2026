@@ -49,6 +49,19 @@ const productSchema = z.object({
     },
     z.coerce.number({ invalid_type_error: 'Preço inválido.' }).positive('O preço deve ser positivo.')
   ),
+  originalPrice: z.preprocess(
+    (val) => {
+      if (val === '' || val === null || val === undefined) return undefined;
+      if (typeof val === 'string') {
+        return parseFloat(val.replace(/\./g, '').replace(',', '.'));
+      }
+      return val;
+    },
+    z.coerce
+      .number({ invalid_type_error: 'Preço antigo inválido.' })
+      .positive('O preço antigo deve ser positivo.')
+      .optional()
+  ),
    cost: z.preprocess(
     (val) => {
       if (typeof val === 'string') {
@@ -118,6 +131,7 @@ export default function ProductForm({ productToEdit, onFinished }: ProductFormPr
     defaultValues: productToEdit ? {
         ...productToEdit,
         price: productToEdit.price || 0,
+        originalPrice: typeof productToEdit.originalPrice === 'number' ? productToEdit.originalPrice : undefined,
         cost: productToEdit.cost || 0,
         onSale: productToEdit.onSale ?? false,
         isHidden: productToEdit.isHidden ?? false,
@@ -134,6 +148,7 @@ export default function ProductForm({ productToEdit, onFinished }: ProductFormPr
       description: '',
       longDescription: '',
       price: 0,
+      originalPrice: undefined,
       cost: 0,
       onSale: false,
       isHidden: false,
@@ -153,6 +168,7 @@ export default function ProductForm({ productToEdit, onFinished }: ProductFormPr
     const defaultValues = productToEdit ? {
         ...productToEdit,
         price: productToEdit.price || 0,
+        originalPrice: typeof productToEdit.originalPrice === 'number' ? productToEdit.originalPrice : undefined,
         cost: productToEdit.cost || 0,
         onSale: productToEdit.onSale ?? false,
         isHidden: productToEdit.isHidden ?? false,
@@ -170,6 +186,7 @@ export default function ProductForm({ productToEdit, onFinished }: ProductFormPr
       description: '',
       longDescription: '',
       price: 0,
+      originalPrice: undefined,
       cost: 0,
       onSale: false,
       isHidden: false,
@@ -236,11 +253,15 @@ export default function ProductForm({ productToEdit, onFinished }: ProductFormPr
     } else {
         delete productData.promotionEndDate;
     }
+
+    if (!values.onSale || typeof values.originalPrice !== 'number' || Number.isNaN(values.originalPrice) || values.originalPrice <= 0) {
+      delete productData.originalPrice;
+    }
     
     if (productToEdit) {
         updateProduct({ ...productToEdit, ...productData, promotionEndDate: values.promotionEndDate?.toISOString() }, logAction, user);
     } else {
-        addProduct({ ...values, promotionEndDate: values.promotionEndDate?.toISOString() }, logAction, user);
+        addProduct({ ...productData, promotionEndDate: values.promotionEndDate?.toISOString() } as any, logAction, user);
     }
     onFinished();
   }
@@ -444,6 +465,7 @@ export default function ProductForm({ productToEdit, onFinished }: ProductFormPr
                                             field.onChange(checked);
                                             if (!checked) {
                                                 form.setValue('promotionEndDate', undefined);
+                                                form.setValue('originalPrice', undefined);
                                             }
                                         }}
                                     />
@@ -475,7 +497,36 @@ export default function ProductForm({ productToEdit, onFinished }: ProductFormPr
                     />
                 </div>
                  {onSale && (
-                     <FormField
+                    <>
+                      <FormField
+                        control={form.control}
+                        name="originalPrice"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Preço Antigo (R$)</FormLabel>
+                            <FormControl>
+                              <Input
+                                {...field}
+                                inputMode="decimal"
+                                value={formatBRL(field.value)}
+                                onChange={(e) => {
+                                  const rawValue = e.target.value.replace(/\D/g, '');
+                                  if (!rawValue) {
+                                    field.onChange(undefined);
+                                    return;
+                                  }
+                                  field.onChange(Number(rawValue) / 100);
+                                }}
+                              />
+                            </FormControl>
+                            <FormDescription>
+                              Valor antes da promoção (aparece riscado na loja).
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
                         control={form.control}
                         name="promotionEndDate"
                         render={({ field }) => (
@@ -528,7 +579,8 @@ export default function ProductForm({ productToEdit, onFinished }: ProductFormPr
                             <FormMessage />
                         </FormItem>
                         )}
-                    />
+                      />
+                    </>
                  )}
             </div>
 

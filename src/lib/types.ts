@@ -22,6 +22,7 @@ export type Product = {
   description: string;
   longDescription: string;
   price: number;
+  originalPrice?: number;
   cost?: number;
   onSale?: boolean;
   promotionEndDate?: string;
