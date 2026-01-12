@@ -19,6 +19,7 @@ import Logo from '@/components/Logo';
 import { useSettings } from '@/context/SettingsContext';
 import { useAuth } from '@/context/AuthContext';
 import { useAudit } from '@/context/AuditContext';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
 
 const formatCurrency = (value: number) => {
@@ -42,6 +43,15 @@ type SellerPerformanceDetails = {
     orders: Order[];
 }
 
+const meses = [
+    { value: '01', label: 'Janeiro' }, { value: '02', label: 'Fevereiro' },
+    { value: '03', label: 'Março' }, { value: '04', label: 'Abril' },
+    { value: '05', label: 'Maio' }, { value: '06', label: 'Junho' },
+    { value: '07', label: 'Julho' }, { value: '08', label: 'Agosto' },
+    { value: '09', label: 'Setembro' }, { value: '10', label: 'Outubro' },
+    { value: '11', label: 'Novembro' }, { value: '12', label: 'Dezembro' },
+];
+
 export default function FinanceiroPage() {
   const { payCommissions } = useAdmin();
   const { orders, financialSummary, commissionSummary } = useAdminData();
@@ -49,6 +59,8 @@ export default function FinanceiroPage() {
   const { user, users } = useAuth();
   const { logAction } = useAudit();
   const router = useRouter();
+  const [mesSelecionado, setMesSelecionado] = useState(() => format(new Date(), 'MM'));
+  const [anoSelecionado, setAnoSelecionado] = useState(() => format(new Date(), 'yyyy'));
   const [isCommissionDetailModalOpen, setIsCommissionDetailModalOpen] = useState(false);
   const [selectedCommissionSeller, setSelectedCommissionSeller] = useState<SellerCommissionDetails | null>(null);
   const [isPerformanceDetailModalOpen, setIsPerformanceDetailModalOpen] = useState(false);
@@ -60,8 +72,44 @@ export default function FinanceiroPage() {
     return orders.filter(o => o.status === 'Entregue').sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
   }, [orders]);
 
+  const anosDisponiveis = useMemo(() => {
+    if (!orders) return [anoSelecionado];
+    const years = new Set<string>();
+    orders.forEach((o) => {
+      try {
+        years.add(format(parseISO(o.date), 'yyyy'));
+      } catch {
+      }
+    });
+    const sorted = Array.from(years).sort((a, b) => Number(b) - Number(a));
+    return sorted.length > 0 ? sorted : [anoSelecionado];
+  }, [orders, anoSelecionado]);
+
+  useEffect(() => {
+    if (!anosDisponiveis.includes(anoSelecionado)) {
+      setAnoSelecionado(anosDisponiveis[0]);
+    }
+  }, [anosDisponiveis, anoSelecionado]);
+
+  const ordersDoPeriodo = useMemo(() => {
+    if (!orders) return [];
+    return orders.filter((o) => {
+      try {
+        const date = parseISO(o.date);
+        return format(date, 'MM') === mesSelecionado && format(date, 'yyyy') === anoSelecionado;
+      } catch {
+        return false;
+      }
+    });
+  }, [orders, mesSelecionado, anoSelecionado]);
+
+  const rotuloPeriodo = useMemo(() => {
+    const monthLabel = meses.find(m => m.value === mesSelecionado)?.label ?? mesSelecionado;
+    return `${monthLabel}/${anoSelecionado}`;
+  }, [mesSelecionado, anoSelecionado]);
+
   const sellerPerformance = useMemo(() => {
-    if (!orders || !users) return [];
+    if (!users) return [];
 
     const performanceMap = new Map<string, SellerPerformanceDetails>();
 
@@ -71,7 +119,7 @@ export default function FinanceiroPage() {
         }
     });
 
-    orders.forEach(order => {
+    ordersDoPeriodo.forEach(order => {
         if (order.sellerId && performanceMap.has(order.sellerId) && order.status !== 'Cancelado' && order.status !== 'Excluído') {
             const sellerData = performanceMap.get(order.sellerId)!;
             sellerData.salesCount += 1;
@@ -82,8 +130,10 @@ export default function FinanceiroPage() {
         }
     });
 
-    return Array.from(performanceMap.values()).sort((a, b) => b.totalSold - a.totalSold);
-  }, [orders, users]);
+    return Array.from(performanceMap.values())
+      .filter((s) => s.salesCount > 0)
+      .sort((a, b) => b.totalSold - a.totalSold);
+  }, [ordersDoPeriodo, users]);
 
 
   const handlePayCommission = async (seller: SellerCommissionDetails) => {
@@ -124,7 +174,7 @@ export default function FinanceiroPage() {
         title = 'Relatório de Comissões';
         document.body.classList.add('print-commissions-only');
     } else if (type === 'sellers') {
-        title = 'Relatório de Vendas por Vendedor';
+        title = `Relatório de Vendas por Vendedor - ${rotuloPeriodo}`;
         document.body.classList.add('print-sellers-only');
     }
     
@@ -277,8 +327,34 @@ export default function FinanceiroPage() {
             </Card>
             <Card id="seller-performance-card">
                 <CardHeader>
-                    <CardTitle className="flex items-center gap-2"><UsersIcon className="h-5 w-5" /> Desempenho dos Vendedores</CardTitle>
-                    <CardDescription>Resumo de vendas geral por vendedor.</CardDescription>
+                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+                        <div>
+                            <CardTitle className="flex items-center gap-2"><UsersIcon className="h-5 w-5" /> Vendas e Comissão por Vendedor</CardTitle>
+                            <CardDescription>Resumo por mês, com total vendido e comissão gerada.</CardDescription>
+                        </div>
+                        <div className="flex flex-wrap items-center gap-2">
+                            <Select value={mesSelecionado} onValueChange={setMesSelecionado}>
+                                <SelectTrigger className="w-full sm:w-[170px]">
+                                    <SelectValue placeholder="Mês" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {meses.map(m => (
+                                        <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                            <Select value={anoSelecionado} onValueChange={setAnoSelecionado}>
+                                <SelectTrigger className="w-full sm:w-[120px]">
+                                    <SelectValue placeholder="Ano" />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {anosDisponiveis.map(y => (
+                                        <SelectItem key={y} value={y}>{y}</SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
+                        </div>
+                    </div>
                 </CardHeader>
                 <CardContent>
                     <div className="rounded-md border">
@@ -309,7 +385,7 @@ export default function FinanceiroPage() {
                                     ))
                                 ) : (
                                     <TableRow>
-                                        <TableCell colSpan={5} className="h-24 text-center">Nenhuma venda registrada.</TableCell>
+                                        <TableCell colSpan={5} className="h-24 text-center">Nenhuma venda registrada no período.</TableCell>
                                     </TableRow>
                                 )}
                             </TableBody>
@@ -570,11 +646,37 @@ export default function FinanceiroPage() {
             <DialogHeader>
                 <DialogTitle>Relatório de Vendas - {selectedPerformanceSeller?.name}</DialogTitle>
                 <DialogDescription>
-                    Lista de todas as vendas realizadas pelo vendedor.
+                    Lista de vendas realizadas pelo vendedor no período selecionado.
                 </DialogDescription>
             </DialogHeader>
             <div id="seller-report-modal-content">
-                <div className="rounded-md border max-h-[60vh] overflow-y-auto">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-3">
+                    <div className="p-3 rounded-md border bg-muted/30">
+                        <p className="text-xs text-muted-foreground">Total vendido</p>
+                        <p className="text-lg font-bold">{formatCurrency(selectedPerformanceSeller?.totalSold ?? 0)}</p>
+                    </div>
+                    <div className="p-3 rounded-md border bg-muted/30">
+                        <p className="text-xs text-muted-foreground">Comissão gerada</p>
+                        <p className="text-lg font-bold">{formatCurrency(selectedPerformanceSeller?.totalCommission ?? 0)}</p>
+                    </div>
+                </div>
+                <div className="hidden print-only space-y-1 text-sm">
+                    <div className="font-semibold border-b pb-1">
+                        Data | Pedido | Cliente | Valor | Comissão
+                    </div>
+                    {(selectedPerformanceSeller?.orders.length ?? 0) > 0 ? (
+                        selectedPerformanceSeller?.orders.map(order => (
+                            <div key={order.id} className="border-b py-1">
+                                {format(parseISO(order.date), "dd/MM/yy")} | {order.id} | {order.customer.name} | {formatCurrency(order.total)} | {formatCurrency(order.commission || 0)}
+                            </div>
+                        ))
+                    ) : (
+                        <div className="py-4 text-center text-muted-foreground">
+                            Nenhuma venda encontrada para este vendedor.
+                        </div>
+                    )}
+                </div>
+                <div className="rounded-md border max-h-[60vh] overflow-y-auto print-hidden">
                     <Table>
                         <TableHeader>
                             <TableRow>
@@ -582,6 +684,7 @@ export default function FinanceiroPage() {
                                 <TableHead>Pedido</TableHead>
                                 <TableHead>Cliente</TableHead>
                                 <TableHead className="text-right">Valor da Venda</TableHead>
+                                <TableHead className="text-right">Comissão</TableHead>
                             </TableRow>
                         </TableHeader>
                         <TableBody>
@@ -592,11 +695,12 @@ export default function FinanceiroPage() {
                                         <TableCell className="font-mono">{order.id}</TableCell>
                                         <TableCell>{order.customer.name}</TableCell>
                                         <TableCell className="text-right font-semibold">{formatCurrency(order.total)}</TableCell>
+                                        <TableCell className="text-right font-semibold">{formatCurrency(order.commission || 0)}</TableCell>
                                     </TableRow>
                                 ))
                             ) : (
                                 <TableRow>
-                                    <TableCell colSpan={4} className="h-24 text-center">Nenhuma venda encontrada para este vendedor.</TableCell>
+                                    <TableCell colSpan={5} className="h-24 text-center">Nenhuma venda encontrada para este vendedor.</TableCell>
                                 </TableRow>
                             )}
                         </TableBody>
