@@ -316,9 +316,15 @@ export default function CreateOrderPage() {
       paidAmount: 0,
       payments: [],
     }));
+
+    const customerWithSeller: CustomerInfo = {
+      ...customer,
+      sellerId: customer.sellerId ?? seller.id,
+      sellerName: customer.sellerName ?? seller.name,
+    };
     
     const orderData: Partial<Order> & { firstDueDate: Date } = {
-        customer: customer,
+        customer: customerWithSeller,
         items: selectedItems,
         total: total,
         discount: values.discount,

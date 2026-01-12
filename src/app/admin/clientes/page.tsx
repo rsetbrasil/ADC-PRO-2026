@@ -451,8 +451,16 @@ export default function CustomersAdminPage() {
         return;
     }
     
+    const customerSellerId = customerData.sellerId ?? user.id;
+    const customerSellerName = customerData.sellerName ?? user.name;
+
     const newCustomerOrder: Partial<Order> & { firstDueDate: Date } = {
-      customer: { ...customerData, password: customerData.cpf?.substring(0, 6) },
+      customer: {
+        ...customerData,
+        sellerId: customerSellerId,
+        sellerName: customerSellerName,
+        password: customerData.cpf?.substring(0, 6),
+      },
       items: [],
       total: 0,
       installments: 0,
@@ -462,8 +470,8 @@ export default function CustomersAdminPage() {
       status: 'Excluído', // It's a registration-only "order"
       paymentMethod: 'Dinheiro',
       installmentDetails: [],
-      sellerId: user.id,
-      sellerName: user.name,
+      sellerId: customerSellerId,
+      sellerName: customerSellerName,
     };
 
     await addOrder(newCustomerOrder, logAction, user);

@@ -805,6 +805,10 @@ export const AdminProvider = ({ children }: { children: ReactNode }) => {
     } as Order;
 
     if (orderToSave.customer) {
+        const sellerId = orderToSave.customer.sellerId ?? (orderToSave.sellerId ? orderToSave.sellerId : undefined);
+        const sellerName = orderToSave.customer.sellerName ?? (orderToSave.sellerId ? orderToSave.sellerName : undefined);
+        orderToSave.customer = { ...orderToSave.customer, sellerId, sellerName };
+
         const existingCode = orderToSave.customer.code
           || orders.find(o => (o.customer.cpf?.replace(/\D/g, '') || `${o.customer.name}-${o.customer.phone}`) === customerKey)?.customer.code;
         const code = existingCode || await allocateNextCustomerCode(db);
@@ -1131,11 +1135,6 @@ export const AdminProvider = ({ children }: { children: ReactNode }) => {
             
             if (updatedCustomerData.code === undefined && order.customer.code) {
                 customerDataForOrder.code = order.customer.code;
-            }
-            // Preserve seller info from the existing order record if not present in the update
-            if (updatedCustomerData.sellerId === undefined && order.customer.sellerId) {
-                customerDataForOrder.sellerId = order.customer.sellerId;
-                customerDataForOrder.sellerName = order.customer.sellerName;
             }
             batch.update(doc(db, 'orders', order.id), { customer: sanitizeCustomerForFirestore(customerDataForOrder) });
         }
