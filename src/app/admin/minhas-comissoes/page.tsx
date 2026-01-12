@@ -2,12 +2,12 @@
 
 'use client';
 
-import { useState, useMemo, useEffect } from 'react';
+import { useMemo } from 'react';
 import { useAdmin, useAdminData } from '@/context/AdminContext';
 import { useAuth } from '@/context/AuthContext';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { DollarSign, History, PiggyBank, BadgePercent, Eye, Undo2 } from 'lucide-react';
+import { DollarSign, PiggyBank, BadgePercent, Eye, Undo2 } from 'lucide-react';
 import { format, parseISO } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
@@ -23,11 +23,11 @@ const formatCurrency = (value: number) => {
 
 export default function MyCommissionsPage() {
   const { reverseCommissionPayment } = useAdmin();
-  const { orders, commissionPayments } = useAdminData();
+  const { orders, commissionPayments, commissionSummary } = useAdminData();
   const { user } = useAuth();
   const { logAction } = useAudit();
 
-  const isManagerOrAdmin = user?.role === 'admin' || user?.role === 'gerente';
+  const isAdmin = user?.role === 'admin';
   
   const pendingCommissions = useMemo(() => {
     if (!user || !orders) return [];
@@ -35,11 +35,11 @@ export default function MyCommissionsPage() {
     let userOrders = orders.filter(o => {
       const isPending = o.status === 'Entregue' && typeof o.commission === 'number' && o.commission > 0 && !o.commissionPaid;
       if (!isPending) return false;
-      if (isManagerOrAdmin) return true; // Manager/Admin sees all
-      return o.sellerId === user.id; // Seller sees only their own
+      if (isAdmin) return true;
+      return o.sellerId === user.id;
     });
     return userOrders;
-  }, [orders, user, isManagerOrAdmin]);
+  }, [orders, user, isAdmin]);
 
   const totalPending = pendingCommissions.reduce((acc, order) => acc + (order.commission || 0), 0);
 
@@ -96,13 +96,14 @@ export default function MyCommissionsPage() {
                 <TabsList>
                     <TabsTrigger value="pending">Comissões Pendentes</TabsTrigger>
                     <TabsTrigger value="history">Meus Pagamentos</TabsTrigger>
-                    {isManagerOrAdmin && <TabsTrigger value="all_history">Histórico Geral</TabsTrigger>}
+                    {isAdmin && <TabsTrigger value="by_seller">Por Vendedor</TabsTrigger>}
+                    {isAdmin && <TabsTrigger value="all_history">Histórico Geral</TabsTrigger>}
                 </TabsList>
                 <TabsContent value="pending" className="mt-4">
                      <Card>
                         <CardHeader>
-                            <CardTitle>{isManagerOrAdmin ? 'Comissões Pendentes (Todos os Vendedores)' : 'Minhas Comissões a Receber'}</CardTitle>
-                            <CardDescription>{isManagerOrAdmin ? 'Lista de todas as vendas concluídas de todos os vendedores, cuja comissão ainda não foi paga.' : 'Esta é a lista de todas as suas vendas concluídas cuja comissão ainda não foi paga.'}</CardDescription>
+                            <CardTitle>{isAdmin ? 'Comissões Pendentes (Todos os Vendedores)' : 'Minhas Comissões a Receber'}</CardTitle>
+                            <CardDescription>{isAdmin ? 'Lista de todas as vendas concluídas de todos os vendedores, cuja comissão ainda não foi paga.' : 'Esta é a lista de todas as suas vendas concluídas cuja comissão ainda não foi paga.'}</CardDescription>
                         </CardHeader>
                         <CardContent>
                              <div className="rounded-md border">
@@ -110,7 +111,7 @@ export default function MyCommissionsPage() {
                                     <TableHeader>
                                         <TableRow>
                                             <TableHead>Data da Venda</TableHead>
-                                            {isManagerOrAdmin && <TableHead>Vendedor</TableHead>}
+                                            {isAdmin && <TableHead>Vendedor</TableHead>}
                                             <TableHead>Pedido ID</TableHead>
                                             <TableHead>Cliente</TableHead>
                                             <TableHead className="text-right">Valor da Comissão</TableHead>
@@ -121,7 +122,7 @@ export default function MyCommissionsPage() {
                                             pendingCommissions.map(order => (
                                                 <TableRow key={order.id}>
                                                     <TableCell>{format(parseISO(order.date), "dd/MM/yyyy")}</TableCell>
-                                                    {isManagerOrAdmin && <TableCell>{order.sellerName}</TableCell>}
+                                                    {isAdmin && <TableCell>{order.sellerName}</TableCell>}
                                                     <TableCell className="font-mono">{order.id}</TableCell>
                                                     <TableCell>{order.customer.name}</TableCell>
                                                     <TableCell className="text-right font-semibold">{formatCurrency(order.commission || 0)}</TableCell>
@@ -129,8 +130,8 @@ export default function MyCommissionsPage() {
                                             ))
                                         ) : (
                                             <TableRow>
-                                                <TableCell colSpan={isManagerOrAdmin ? 5 : 4} className="h-24 text-center">
-                                                  {isManagerOrAdmin ? 'Nenhuma comissão pendente para a equipe.' : 'Você não tem comissões pendentes.'}
+                                                <TableCell colSpan={isAdmin ? 5 : 4} className="h-24 text-center">
+                                                  {isAdmin ? 'Nenhuma comissão pendente para a equipe.' : 'Você não tem comissões pendentes.'}
                                                 </TableCell>
                                             </TableRow>
                                         )}
@@ -140,6 +141,44 @@ export default function MyCommissionsPage() {
                         </CardContent>
                      </Card>
                 </TabsContent>
+                {isAdmin && (
+                    <TabsContent value="by_seller" className="mt-4">
+                        <Card>
+                            <CardHeader>
+                                <CardTitle>Comissões Pendentes por Vendedor</CardTitle>
+                                <CardDescription>Total de comissão pendente e quantidade de vendas por vendedor.</CardDescription>
+                            </CardHeader>
+                            <CardContent>
+                                <div className="rounded-md border">
+                                    <Table>
+                                        <TableHeader>
+                                            <TableRow>
+                                                <TableHead>Vendedor</TableHead>
+                                                <TableHead className="text-center">Nº de Vendas</TableHead>
+                                                <TableHead className="text-right">Comissão Total</TableHead>
+                                            </TableRow>
+                                        </TableHeader>
+                                        <TableBody>
+                                            {(commissionSummary?.commissionsBySeller?.length ?? 0) > 0 ? (
+                                                commissionSummary.commissionsBySeller.map((seller) => (
+                                                    <TableRow key={seller.id}>
+                                                        <TableCell className="font-medium">{seller.name}</TableCell>
+                                                        <TableCell className="text-center">{seller.count}</TableCell>
+                                                        <TableCell className="text-right font-semibold">{formatCurrency(seller.total)}</TableCell>
+                                                    </TableRow>
+                                                ))
+                                            ) : (
+                                                <TableRow>
+                                                    <TableCell colSpan={3} className="h-24 text-center">Nenhuma comissão pendente para a equipe.</TableCell>
+                                                </TableRow>
+                                            )}
+                                        </TableBody>
+                                    </Table>
+                                </div>
+                            </CardContent>
+                        </Card>
+                    </TabsContent>
+                )}
                 <TabsContent value="history" className="mt-4">
                      <Card>
                         <CardHeader>
@@ -172,7 +211,7 @@ export default function MyCommissionsPage() {
                                                                     Ver Comprovante
                                                                 </Link>
                                                             </Button>
-                                                             {isManagerOrAdmin && (
+                                                             {isAdmin && (
                                                                 <AlertDialog>
                                                                     <AlertDialogTrigger asChild>
                                                                         <Button variant="destructive" outline size="sm">
@@ -211,7 +250,7 @@ export default function MyCommissionsPage() {
                         </CardContent>
                      </Card>
                 </TabsContent>
-                {isManagerOrAdmin && (
+                {isAdmin && (
                     <TabsContent value="all_history" className="mt-4">
                         <Card>
                             <CardHeader>

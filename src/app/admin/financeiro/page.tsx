@@ -59,6 +59,7 @@ export default function FinanceiroPage() {
   const { user, users } = useAuth();
   const { logAction } = useAudit();
   const router = useRouter();
+  const isManager = user?.role === 'gerente';
   const [mesSelecionado, setMesSelecionado] = useState(() => format(new Date(), 'MM'));
   const [anoSelecionado, setAnoSelecionado] = useState(() => format(new Date(), 'yyyy'));
   const [isCommissionDetailModalOpen, setIsCommissionDetailModalOpen] = useState(false);
@@ -160,6 +161,9 @@ export default function FinanceiroPage() {
   };
 
   const handlePrint = (type: 'sales' | 'profits' | 'commissions' | 'sellers' | 'all') => {
+    if (isManager && type !== 'sellers') {
+      return;
+    }
     let title = 'Relatório Financeiro';
     
     document.body.classList.remove('print-sales-only', 'print-profits-only', 'print-commissions-only', 'print-sellers-only');
@@ -174,7 +178,7 @@ export default function FinanceiroPage() {
         title = 'Relatório de Comissões';
         document.body.classList.add('print-commissions-only');
     } else if (type === 'sellers') {
-        title = `Relatório de Vendas por Vendedor - ${rotuloPeriodo}`;
+        title = `Relatório de Vendas e Comissões por Vendedor - ${rotuloPeriodo}`;
         document.body.classList.add('print-sellers-only');
     }
     
@@ -194,7 +198,8 @@ export default function FinanceiroPage() {
     const header = `
       <div style="margin-bottom: 2rem; display: flex; justify-content: space-between; align-items: flex-start; padding-bottom: 1rem; border-bottom: 1px solid #ccc;">
         <div>
-          <h1 style="font-size: 1.5rem; font-weight: bold;">Relatório de Vendas - ${selectedPerformanceSeller.name}</h1>
+          <h1 style="font-size: 1.5rem; font-weight: bold;">Relatório de Vendas e Comissões - ${selectedPerformanceSeller.name}</h1>
+          <p style="font-size: 0.9rem; color: #666;">Período: ${rotuloPeriodo}</p>
           <p style="font-size: 0.9rem; color: #666;">Gerado em: ${new Date().toLocaleDateString('pt-BR')}</p>
         </div>
       </div>
@@ -214,85 +219,192 @@ export default function FinanceiroPage() {
       },
     };
 
+  const sellerPerformanceCard = (
+    <Card id="seller-performance-card">
+      <CardHeader>
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <CardTitle className="flex items-center gap-2"><UsersIcon className="h-5 w-5" /> Vendas e Comissão por Vendedor</CardTitle>
+            <CardDescription>
+              Resumo por mês, com total vendido e comissão gerada. Período: <span className="font-medium">{rotuloPeriodo}</span>
+            </CardDescription>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
+            <Select value={mesSelecionado} onValueChange={setMesSelecionado}>
+              <SelectTrigger className="w-full sm:w-[170px]">
+                <SelectValue placeholder="Mês" />
+              </SelectTrigger>
+              <SelectContent>
+                {meses.map(m => (
+                  <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Select value={anoSelecionado} onValueChange={setAnoSelecionado}>
+              <SelectTrigger className="w-full sm:w-[120px]">
+                <SelectValue placeholder="Ano" />
+              </SelectTrigger>
+              <SelectContent>
+                {anosDisponiveis.map(y => (
+                  <SelectItem key={y} value={y}>{y}</SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            <Button variant="outline" onClick={() => handlePrint('sellers')}>
+              <Printer className="mr-2 h-4 w-4" />
+              Imprimir Relatório
+            </Button>
+          </div>
+        </div>
+      </CardHeader>
+      <CardContent>
+        <div className="rounded-md border">
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Vendedor</TableHead>
+                <TableHead className="text-center">Vendas</TableHead>
+                <TableHead className="text-right">Total Vendido</TableHead>
+                <TableHead className="text-right">Comissão Gerada</TableHead>
+                <TableHead className="text-right">Ações</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {sellerPerformance.length > 0 ? (
+                sellerPerformance.map(seller => (
+                  <TableRow key={seller.id}>
+                    <TableCell className="font-medium">{seller.name}</TableCell>
+                    <TableCell className="text-center">{seller.salesCount}</TableCell>
+                    <TableCell className="text-right">{formatCurrency(seller.totalSold)}</TableCell>
+                    <TableCell className="text-right font-semibold">{formatCurrency(seller.totalCommission)}</TableCell>
+                    <TableCell className="text-right">
+                      <Button variant="outline" size="sm" onClick={() => handleOpenPerformanceDetails(seller)}>
+                        <Eye className="mr-2 h-4 w-4" /> Ver Vendas
+                      </Button>
+                    </TableCell>
+                  </TableRow>
+                ))
+              ) : (
+                <TableRow>
+                  <TableCell colSpan={5} className="h-24 text-center">Nenhuma venda registrada no período.</TableCell>
+                </TableRow>
+              )}
+            </TableBody>
+          </Table>
+        </div>
+      </CardContent>
+    </Card>
+  );
+
+  const printSellersSection = (
+    <div className={`print-section print-section-sellers mt-8${isManager ? '' : ' page-break-before'}`}>
+      <h2 className="text-xl font-semibold text-center mb-4">Desempenho dos Vendedores</h2>
+      <table className="w-full text-sm border-collapse">
+        <thead>
+          <tr className="border-b-2">
+            <th className="text-left p-2 font-bold">Vendedor</th>
+            <th className="text-center p-2 font-bold">Vendas</th>
+            <th className="text-right p-2 font-bold">Total Vendido</th>
+            <th className="text-right p-2 font-bold">Comissão Gerada</th>
+          </tr>
+        </thead>
+        <tbody>
+          {sellerPerformance.map(seller => (
+            <tr key={seller.id} className="border-b last:border-none">
+              <td className="p-2">{seller.name}</td>
+              <td className="text-center p-2">{seller.salesCount}</td>
+              <td className="text-right p-2">{formatCurrency(seller.totalSold)}</td>
+              <td className="text-right p-2 font-semibold">{formatCurrency(seller.totalCommission)}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+    </div>
+  );
+
   return (
     <div className='space-y-8'>
       <div className="print-hidden">
-          <Card>
-            <CardHeader>
+        {isManager ? (
+          sellerPerformanceCard
+        ) : (
+          <>
+            <Card>
+              <CardHeader>
                 <CardTitle>Relatório Financeiro</CardTitle>
                 <CardDescription>Resumo de vendas, lucros e comissões. Use os botões para imprimir seções específicas.</CardDescription>
-            </CardHeader>
-            <CardContent className="flex flex-wrap gap-2">
+              </CardHeader>
+              <CardContent className="flex flex-wrap gap-2">
                 <Button onClick={() => handlePrint('all')}>
-                    <Printer className="mr-2 h-4 w-4" />
-                    Imprimir Relatório Completo
+                  <Printer className="mr-2 h-4 w-4" />
+                  Imprimir Relatório Completo
                 </Button>
                 <Button variant="outline" onClick={() => handlePrint('sales')}>
-                    <ShoppingCart className="mr-2 h-4 w-4" />
-                    Apenas Vendas
+                  <ShoppingCart className="mr-2 h-4 w-4" />
+                  Apenas Vendas
                 </Button>
                 <Button variant="outline" onClick={() => handlePrint('sellers')}>
-                    <UsersIcon className="mr-2 h-4 w-4" />
-                    Vendas por Vendedor
+                  <UsersIcon className="mr-2 h-4 w-4" />
+                  Vendas por Vendedor
                 </Button>
                 <Button variant="outline" onClick={() => handlePrint('profits')}>
-                    <TrendingUp className="mr-2 h-4 w-4" />
-                    Apenas Lucros
+                  <TrendingUp className="mr-2 h-4 w-4" />
+                  Apenas Lucros
                 </Button>
                 <Button variant="outline" onClick={() => handlePrint('commissions')}>
-                    <Award className="mr-2 h-4 w-4" />
-                    Apenas Comissões
+                  <Award className="mr-2 h-4 w-4" />
+                  Apenas Comissões
                 </Button>
-            </CardContent>
-          </Card>
+              </CardContent>
+            </Card>
 
-          <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Total Vendido</CardTitle>
-                <DollarSign className="h-4 w-4 text-muted-foreground" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{formatCurrency(financialSummary.totalVendido)}</div>
-                <p className="text-xs text-muted-foreground">Soma de todos os pedidos</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Lucro Bruto</CardTitle>
-                <TrendingUp className="h-4 w-4 text-emerald-500" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{formatCurrency(financialSummary.lucroBruto)}</div>
-                <p className="text-xs text-muted-foreground">Receita total - Custo dos produtos</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Contas a Receber</CardTitle>
-                <Clock className="h-4 w-4 text-amber-500" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{formatCurrency(financialSummary.totalPendente)}</div>
-                <p className="text-xs text-muted-foreground">Soma de todas as parcelas pendentes</p>
-              </CardContent>
-            </Card>
-            <Card>
-              <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
-                <CardTitle className="text-sm font-medium">Comissões a Pagar</CardTitle>
-                <Percent className="h-4 w-4 text-blue-500" />
-              </CardHeader>
-              <CardContent>
-                <div className="text-2xl font-bold">{formatCurrency(commissionSummary.totalPendingCommission)}</div>
-                <p className="text-xs text-muted-foreground">Soma das comissões pendentes</p>
-              </CardContent>
-            </Card>
-          </div>
+            <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Total Vendido</CardTitle>
+                  <DollarSign className="h-4 w-4 text-muted-foreground" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatCurrency(financialSummary.totalVendido)}</div>
+                  <p className="text-xs text-muted-foreground">Soma de todos os pedidos</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Lucro Bruto</CardTitle>
+                  <TrendingUp className="h-4 w-4 text-emerald-500" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatCurrency(financialSummary.lucroBruto)}</div>
+                  <p className="text-xs text-muted-foreground">Receita total - Custo dos produtos</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Contas a Receber</CardTitle>
+                  <Clock className="h-4 w-4 text-amber-500" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatCurrency(financialSummary.totalPendente)}</div>
+                  <p className="text-xs text-muted-foreground">Soma de todas as parcelas pendentes</p>
+                </CardContent>
+              </Card>
+              <Card>
+                <CardHeader className="flex flex-row items-center justify-between space-y-0 pb-2">
+                  <CardTitle className="text-sm font-medium">Comissões a Pagar</CardTitle>
+                  <Percent className="h-4 w-4 text-blue-500" />
+                </CardHeader>
+                <CardContent>
+                  <div className="text-2xl font-bold">{formatCurrency(commissionSummary.totalPendingCommission)}</div>
+                  <p className="text-xs text-muted-foreground">Soma das comissões pendentes</p>
+                </CardContent>
+              </Card>
+            </div>
 
-          <div className="grid gap-8 md:grid-cols-2">
-            <Card>
+            <div className="grid gap-8 md:grid-cols-2">
+              <Card>
                 <CardHeader>
-                    <CardTitle>Vendas Mensais</CardTitle>
+                  <CardTitle>Vendas Mensais</CardTitle>
                 </CardHeader>
                 <CardContent className="pl-2">
                   <ChartContainer config={chartConfig} className="h-[350px] w-full">
@@ -315,91 +427,24 @@ export default function FinanceiroPage() {
                         <ChartTooltip
                           cursor={false}
                           content={<ChartTooltipContent
-                              formatter={(value) => formatCurrency(value as number)}
-                              />}
-                          />
+                            formatter={(value) => formatCurrency(value as number)}
+                          />}
+                        />
                         <Legend />
                         <Bar dataKey="total" fill="var(--color-total)" radius={4} />
                       </BarChart>
                     </ResponsiveContainer>
                   </ChartContainer>
                 </CardContent>
-            </Card>
-            <Card id="seller-performance-card">
-                <CardHeader>
-                    <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-                        <div>
-                            <CardTitle className="flex items-center gap-2"><UsersIcon className="h-5 w-5" /> Vendas e Comissão por Vendedor</CardTitle>
-                            <CardDescription>Resumo por mês, com total vendido e comissão gerada.</CardDescription>
-                        </div>
-                        <div className="flex flex-wrap items-center gap-2">
-                            <Select value={mesSelecionado} onValueChange={setMesSelecionado}>
-                                <SelectTrigger className="w-full sm:w-[170px]">
-                                    <SelectValue placeholder="Mês" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {meses.map(m => (
-                                        <SelectItem key={m.value} value={m.value}>{m.label}</SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                            <Select value={anoSelecionado} onValueChange={setAnoSelecionado}>
-                                <SelectTrigger className="w-full sm:w-[120px]">
-                                    <SelectValue placeholder="Ano" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {anosDisponiveis.map(y => (
-                                        <SelectItem key={y} value={y}>{y}</SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
-                        </div>
-                    </div>
-                </CardHeader>
-                <CardContent>
-                    <div className="rounded-md border">
-                        <Table>
-                            <TableHeader>
-                                <TableRow>
-                                    <TableHead>Vendedor</TableHead>
-                                    <TableHead className="text-center">Vendas</TableHead>
-                                    <TableHead className="text-right">Total Vendido</TableHead>
-                                    <TableHead className="text-right">Comissão Gerada</TableHead>
-                                    <TableHead className="text-right">Ações</TableHead>
-                                </TableRow>
-                            </TableHeader>
-                            <TableBody>
-                                {sellerPerformance.length > 0 ? (
-                                    sellerPerformance.map(seller => (
-                                        <TableRow key={seller.id}>
-                                            <TableCell className="font-medium">{seller.name}</TableCell>
-                                            <TableCell className="text-center">{seller.salesCount}</TableCell>
-                                            <TableCell className="text-right">{formatCurrency(seller.totalSold)}</TableCell>
-                                            <TableCell className="text-right font-semibold">{formatCurrency(seller.totalCommission)}</TableCell>
-                                            <TableCell className="text-right">
-                                                 <Button variant="outline" size="sm" onClick={() => handleOpenPerformanceDetails(seller)}>
-                                                    <Eye className="mr-2 h-4 w-4" /> Ver Vendas
-                                                </Button>
-                                            </TableCell>
-                                        </TableRow>
-                                    ))
-                                ) : (
-                                    <TableRow>
-                                        <TableCell colSpan={5} className="h-24 text-center">Nenhuma venda registrada no período.</TableCell>
-                                    </TableRow>
-                                )}
-                            </TableBody>
-                        </Table>
-                    </div>
-                </CardContent>
-            </Card>
-          </div>
-           <Card>
+              </Card>
+              {sellerPerformanceCard}
+            </div>
+            <Card>
               <CardHeader>
-                  <div>
-                    <CardTitle className="flex items-center gap-2"><Award className="h-5 w-5" /> Comissões a Pagar</CardTitle>
-                    <CardDescription>Total de comissões pendentes para cada vendedor (apenas de pedidos entregues).</CardDescription>
-                  </div>
+                <div>
+                  <CardTitle className="flex items-center gap-2"><Award className="h-5 w-5" /> Comissões a Pagar</CardTitle>
+                  <CardDescription>Total de comissões pendentes para cada vendedor (apenas de pedidos entregues).</CardDescription>
+                </div>
               </CardHeader>
               <CardContent>
                 <div className="rounded-md border">
@@ -421,30 +466,32 @@ export default function FinanceiroPage() {
                             <TableCell className="text-right font-semibold">{formatCurrency(seller.total)}</TableCell>
                             <TableCell className="text-right">
                               <div className="flex items-center justify-end gap-2">
-                                    <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleOpenCommissionDetails(seller)}>
-                                        <Eye className="h-4 w-4" />
-                                        <span className="sr-only">Ver detalhes</span>
-                                    </Button>
-                                    <Button size="sm" onClick={() => handlePayCommission(seller)}>
-                                        <DollarSign className="mr-2 h-4 w-4" />
-                                        Pagar
-                                    </Button>
-                                </div>
+                                <Button variant="ghost" size="icon" className="h-8 w-8" onClick={() => handleOpenCommissionDetails(seller)}>
+                                  <Eye className="h-4 w-4" />
+                                  <span className="sr-only">Ver detalhes</span>
+                                </Button>
+                                <Button size="sm" onClick={() => handlePayCommission(seller)}>
+                                  <DollarSign className="mr-2 h-4 w-4" />
+                                  Pagar
+                                </Button>
+                              </div>
                             </TableCell>
                           </TableRow>
                         ))
                       ) : (
                         <TableRow>
-                            <TableCell colSpan={4} className="h-24 text-center">
-                              Nenhuma comissão pendente de pagamento.
-                            </TableCell>
-                          </TableRow>
+                          <TableCell colSpan={4} className="h-24 text-center">
+                            Nenhuma comissão pendente de pagamento.
+                          </TableCell>
+                        </TableRow>
                       )}
                     </TableBody>
                   </Table>
                 </div>
               </CardContent>
             </Card>
+          </>
+        )}
       </div>
 
        {/* Print-only view */}
@@ -464,182 +511,167 @@ export default function FinanceiroPage() {
             </div>
         </div>
         
-        <div className="print-section print-section-profits print-section-sales space-y-6">
-            <h2 className="text-xl font-semibold text-center">Resumo Financeiro</h2>
-            <table className="w-full text-base border-collapse">
-                 <tbody>
-                    <tr className="border-b">
-                        <td className="p-2 font-medium">Total Vendido</td>
-                        <td className="p-2 text-right font-bold">{formatCurrency(financialSummary.totalVendido)}</td>
-                    </tr>
-                     <tr className="border-b">
-                        <td className="p-2 font-medium">Lucro Bruto</td>
-                        <td className="p-2 text-right font-bold">{formatCurrency(financialSummary.lucroBruto)}</td>
-                    </tr>
-                    <tr className="border-b">
-                        <td className="p-2 font-medium">Contas a Receber</td>
-                        <td className="p-2 text-right font-bold">{formatCurrency(financialSummary.totalPendente)}</td>
-                    </tr>
-                    <tr className="border-b">
-                        <td className="p-2 font-medium">Comissões a Pagar</td>
-                        <td className="p-2 text-right font-bold">{formatCurrency(commissionSummary.totalPendingCommission)}</td>
-                    </tr>
-                 </tbody>
-            </table>
-        </div>
+        {isManager ? (
+          printSellersSection
+        ) : (
+          <>
+            <div className="print-section print-section-profits print-section-sales space-y-6">
+              <h2 className="text-xl font-semibold text-center">Resumo Financeiro</h2>
+              <table className="w-full text-base border-collapse">
+                <tbody>
+                  <tr className="border-b">
+                    <td className="p-2 font-medium">Total Vendido</td>
+                    <td className="p-2 text-right font-bold">{formatCurrency(financialSummary.totalVendido)}</td>
+                  </tr>
+                  <tr className="border-b">
+                    <td className="p-2 font-medium">Lucro Bruto</td>
+                    <td className="p-2 text-right font-bold">{formatCurrency(financialSummary.lucroBruto)}</td>
+                  </tr>
+                  <tr className="border-b">
+                    <td className="p-2 font-medium">Contas a Receber</td>
+                    <td className="p-2 text-right font-bold">{formatCurrency(financialSummary.totalPendente)}</td>
+                  </tr>
+                  <tr className="border-b">
+                    <td className="p-2 font-medium">Comissões a Pagar</td>
+                    <td className="p-2 text-right font-bold">{formatCurrency(commissionSummary.totalPendingCommission)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
 
-        <div className="print-section print-section-sales mt-8">
-            <h2 className="text-xl font-semibold text-center mb-4">Vendas Mensais</h2>
-            {/* The chart won't be printed as it's complex to render in print. A table is better */}
-            <table className="w-full text-sm border-collapse">
+            <div className="print-section print-section-sales mt-8">
+              <h2 className="text-xl font-semibold text-center mb-4">Vendas Mensais</h2>
+              <table className="w-full text-sm border-collapse">
                 <thead>
-                    <tr className="border-b-2">
-                        <th className="text-left p-2 font-bold">Mês/Ano</th>
-                        <th className="text-left p-2 font-bold">Total Vendido</th>
-                    </tr>
+                  <tr className="border-b-2">
+                    <th className="text-left p-2 font-bold">Mês/Ano</th>
+                    <th className="text-left p-2 font-bold">Total Vendido</th>
+                  </tr>
                 </thead>
                 <tbody>
-                    {financialSummary.monthlyData.map(item => (
-                        <tr key={item.name} className="border-b last:border-none">
-                            <td className="p-2 capitalize">{item.name}</td>
-                            <td className="p-2 text-right font-semibold">{formatCurrency(item.total)}</td>
-                        </tr>
-                    ))}
+                  {financialSummary.monthlyData.map(item => (
+                    <tr key={item.name} className="border-b last:border-none">
+                      <td className="p-2 capitalize">{item.name}</td>
+                      <td className="p-2 text-right font-semibold">{formatCurrency(item.total)}</td>
+                    </tr>
+                  ))}
                 </tbody>
-            </table>
+              </table>
 
-            <div className="mt-8">
+              <div className="mt-8">
                 <h2 className="text-xl font-semibold text-center mb-4">Relatório de Vendas Entregues</h2>
                 {deliveredOrders.length > 0 ? (
-                    <table className="w-full text-sm border-collapse">
-                        <thead>
-                            <tr className="border-b-2">
-                                <th className="text-left p-2 font-bold">Data</th>
-                                <th className="text-left p-2 font-bold">Pedido</th>
-                                <th className="text-left p-2 font-bold">Cliente</th>
-                                <th className="text-left p-2 font-bold">Vendedor</th>
-                                <th className="text-left p-2 font-bold">Valor</th>
-                                <th className="text-left p-2 font-bold">Comissão</th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            {deliveredOrders.map(order => (
-                                <tr key={order.id} className="border-b last:border-none">
-                                    <td className="p-2">{format(parseISO(order.date), 'dd/MM/yy')}</td>
-                                    <td className="p-2 font-mono">{order.id}</td>
-                                    <td className="p-2">{order.customer.name}</td>
-                                    <td className="p-2">{order.sellerName}</td>
-                                    <td className="p-2 text-right">{formatCurrency(order.total)}</td>
-                                    <td className="p-2 text-right font-semibold">{formatCurrency(order.commission || 0)}</td>
-                                </tr>
-                            ))}
-                        </tbody>
-                    </table>
+                  <table className="w-full text-sm border-collapse">
+                    <thead>
+                      <tr className="border-b-2">
+                        <th className="text-left p-2 font-bold">Data</th>
+                        <th className="text-left p-2 font-bold">Pedido</th>
+                        <th className="text-left p-2 font-bold">Cliente</th>
+                        <th className="text-left p-2 font-bold">Vendedor</th>
+                        <th className="text-left p-2 font-bold">Valor</th>
+                        <th className="text-left p-2 font-bold">Comissão</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {deliveredOrders.map(order => (
+                        <tr key={order.id} className="border-b last:border-none">
+                          <td className="p-2">{format(parseISO(order.date), 'dd/MM/yy')}</td>
+                          <td className="p-2 font-mono">{order.id}</td>
+                          <td className="p-2">{order.customer.name}</td>
+                          <td className="p-2">{order.sellerName}</td>
+                          <td className="p-2 text-right">{formatCurrency(order.total)}</td>
+                          <td className="p-2 text-right font-semibold">{formatCurrency(order.commission || 0)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
                 ) : (
-                    <div className="text-center text-gray-500 py-8">
-                        <ShoppingCart className="mx-auto h-8 w-8" />
-                        <p className="mt-2">Nenhuma venda entregue no período.</p>
-                    </div>
+                  <div className="text-center text-gray-500 py-8">
+                    <ShoppingCart className="mx-auto h-8 w-8" />
+                    <p className="mt-2">Nenhuma venda entregue no período.</p>
+                  </div>
                 )}
+              </div>
+
             </div>
 
-        </div>
+            {printSellersSection}
 
-        <div className="print-section print-section-sellers mt-8 page-break-before">
-            <h2 className="text-xl font-semibold text-center mb-4">Desempenho dos Vendedores</h2>
-            <table className="w-full text-sm border-collapse">
+            <div className="print-section print-section-commissions mt-8">
+              <h2 className="text-xl font-semibold text-center mb-4">Comissões a Pagar</h2>
+              <table className="w-full text-sm border-collapse">
                 <thead>
-                    <tr className="border-b-2">
-                        <th className="text-left p-2 font-bold">Vendedor</th>
-                        <th className="text-center p-2 font-bold">Vendas</th>
-                        <th className="text-right p-2 font-bold">Total Vendido</th>
-                        <th className="text-right p-2 font-bold">Comissão Gerada</th>
-                    </tr>
+                  <tr className="border-b-2">
+                    <th className="text-left p-2 font-bold">Vendedor</th>
+                    <th className="text-left p-2 font-bold">Nº de Vendas</th>
+                    <th className="text-left p-2 font-bold">Comissão Total</th>
+                  </tr>
                 </thead>
                 <tbody>
-                    {sellerPerformance.map(seller => (
-                        <tr key={seller.id} className="border-b last:border-none">
-                            <td className="p-2">{seller.name}</td>
-                            <td className="text-center p-2">{seller.salesCount}</td>
-                            <td className="text-right p-2">{formatCurrency(seller.totalSold)}</td>
-                            <td className="text-right p-2 font-semibold">{formatCurrency(seller.totalCommission)}</td>
-                        </tr>
-                    ))}
-                </tbody>
-            </table>
-        </div>
-
-        <div className="print-section print-section-commissions mt-8">
-            <h2 className="text-xl font-semibold text-center mb-4">Comissões a Pagar</h2>
-            <table className="w-full text-sm border-collapse">
-                <thead>
-                    <tr className="border-b-2">
-                        <th className="text-left p-2 font-bold">Vendedor</th>
-                        <th className="text-left p-2 font-bold">Nº de Vendas</th>
-                        <th className="text-left p-2 font-bold">Comissão Total</th>
+                  {commissionSummary.commissionsBySeller.length > 0 ? (
+                    commissionSummary.commissionsBySeller.map(seller => (
+                      <tr key={seller.id} className="border-b last:border-none">
+                        <td className="p-2">{seller.name}</td>
+                        <td className="text-center p-2">{seller.count}</td>
+                        <td className="text-right p-2 font-semibold">{formatCurrency(seller.total)}</td>
+                      </tr>
+                    ))
+                  ) : (
+                    <tr>
+                      <td colSpan={3} className="h-24 text-center text-gray-500">
+                        Nenhuma comissão pendente de pagamento.
+                      </td>
                     </tr>
-                </thead>
-                <tbody>
-                    {commissionSummary.commissionsBySeller.length > 0 ? (
-                        commissionSummary.commissionsBySeller.map(seller => (
-                        <tr key={seller.id} className="border-b last:border-none">
-                            <td className="p-2">{seller.name}</td>
-                            <td className="text-center p-2">{seller.count}</td>
-                            <td className="text-right p-2 font-semibold">{formatCurrency(seller.total)}</td>
-                        </tr>
-                        ))
-                    ) : (
-                        <tr>
-                            <td colSpan={3} className="h-24 text-center text-gray-500">
-                            Nenhuma comissão pendente de pagamento.
-                            </td>
-                        </tr>
-                    )}
+                  )}
                 </tbody>
-            </table>
-        </div>
+              </table>
+            </div>
+          </>
+        )}
       </div>
     
-    <Dialog open={isCommissionDetailModalOpen} onOpenChange={setIsCommissionDetailModalOpen}>
+    {!isManager && (
+      <Dialog open={isCommissionDetailModalOpen} onOpenChange={setIsCommissionDetailModalOpen}>
         <DialogContent className="max-w-4xl">
-            <DialogHeader>
-                <DialogTitle>Vendas Pendentes de Comissão</DialogTitle>
-                <DialogDescription>
-                    Lista de vendas para o vendedor <span className="font-bold">{selectedCommissionSeller?.name}</span> que compõem o total da comissão.
-                </DialogDescription>
-            </DialogHeader>
-            <div className="rounded-md border max-h-[60vh] overflow-y-auto">
-                <Table>
-                    <TableHeader>
-                        <TableRow>
-                            <TableHead>Data</TableHead>
-                            <TableHead>Pedido</TableHead>
-                            <TableHead>Cliente</TableHead>
-                            <TableHead className="text-right">Valor Pedido</TableHead>
-                            <TableHead className="text-right">Valor Comissão</TableHead>
-                        </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                        {ordersForSelectedCommissionSeller.length > 0 ? (
-                            ordersForSelectedCommissionSeller.map(order => (
-                                <TableRow key={order.id}>
-                                    <TableCell>{format(parseISO(order.date), "dd/MM/yy")}</TableCell>
-                                    <TableCell className="font-mono">{order.id}</TableCell>
-                                    <TableCell>{order.customer.name}</TableCell>
-                                    <TableCell className="text-right">{formatCurrency(order.total)}</TableCell>
-                                    <TableCell className="text-right font-semibold">{formatCurrency(order.commission || 0)}</TableCell>
-                                </TableRow>
-                            ))
-                        ) : (
-                            <TableRow>
-                                <TableCell colSpan={5} className="h-24 text-center">Nenhum pedido encontrado.</TableCell>
-                            </TableRow>
-                        )}
-                    </TableBody>
-                </Table>
-            </div>
+          <DialogHeader>
+            <DialogTitle>Vendas Pendentes de Comissão</DialogTitle>
+            <DialogDescription>
+              Lista de vendas para o vendedor <span className="font-bold">{selectedCommissionSeller?.name}</span> que compõem o total da comissão.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="rounded-md border max-h-[60vh] overflow-y-auto">
+            <Table>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Data</TableHead>
+                  <TableHead>Pedido</TableHead>
+                  <TableHead>Cliente</TableHead>
+                  <TableHead className="text-right">Valor Pedido</TableHead>
+                  <TableHead className="text-right">Valor Comissão</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {ordersForSelectedCommissionSeller.length > 0 ? (
+                  ordersForSelectedCommissionSeller.map(order => (
+                    <TableRow key={order.id}>
+                      <TableCell>{format(parseISO(order.date), "dd/MM/yy")}</TableCell>
+                      <TableCell className="font-mono">{order.id}</TableCell>
+                      <TableCell>{order.customer.name}</TableCell>
+                      <TableCell className="text-right">{formatCurrency(order.total)}</TableCell>
+                      <TableCell className="text-right font-semibold">{formatCurrency(order.commission || 0)}</TableCell>
+                    </TableRow>
+                  ))
+                ) : (
+                  <TableRow>
+                    <TableCell colSpan={5} className="h-24 text-center">Nenhum pedido encontrado.</TableCell>
+                  </TableRow>
+                )}
+              </TableBody>
+            </Table>
+          </div>
         </DialogContent>
-    </Dialog>
+      </Dialog>
+    )}
     
     <Dialog open={isPerformanceDetailModalOpen} onOpenChange={setIsPerformanceDetailModalOpen}>
         <DialogContent className="max-w-4xl">
