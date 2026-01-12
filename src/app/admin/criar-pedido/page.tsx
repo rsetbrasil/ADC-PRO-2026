@@ -19,9 +19,8 @@ import { Form, FormControl, FormField, FormItem, FormLabel, FormMessage } from '
 import { Input } from '@/components/ui/input';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
-import { Command, CommandDialog, CommandEmpty, CommandGroup, CommandInput, CommandList, CommandItem } from '@/components/ui/command';
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from '@/components/ui/table';
-import { Check, ChevronsUpDown, PlusCircle, ShoppingCart, Trash2, CalendarIcon, MinusCircle, FileText } from 'lucide-react';
+import { Check, PlusCircle, ShoppingCart, Trash2, CalendarIcon, MinusCircle, FileText } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { CustomerInfo, User, Product, CartItem, Order, Installment } from '@/lib/types';
 import { addMonths, format, parse, isValid } from 'date-fns';
@@ -160,10 +159,9 @@ export default function CreateOrderPage() {
 
   const [selectedItems, setSelectedItems] = useState<CartItem[]>([]);
   const [productSearch, setProductSearch] = useState('');
-  const [openProductPopover, setOpenProductPopover] = useState(false);
-  
-  const [openCustomerDialog, setOpenCustomerDialog] = useState(false);
-  
+  const [openProductPicker, setOpenProductPicker] = useState(false);
+  const [customerSearch, setCustomerSearch] = useState('');
+  const [openCustomerPicker, setOpenCustomerPicker] = useState(false);
 
   const sellers = useMemo(() => {
     return users.filter(u => u.role === 'vendedor' || u.role === 'admin' || u.role === 'gerente');
@@ -191,6 +189,15 @@ export default function CreateOrderPage() {
     );
   }, [productSearch, uniqueProducts]);
 
+  const filteredCustomers = useMemo(() => {
+    const q = customerSearch.trim().toLowerCase();
+    if (!q) return allCustomers || [];
+    return (allCustomers || []).filter((c) => {
+      const haystack = `${c.code || ''} ${c.name || ''} ${c.cpf || ''} ${c.phone || ''}`.toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [allCustomers, customerSearch]);
+
 
   const form = useForm<CreateOrderFormValues>({
     resolver: zodResolver(createOrderSchema),
@@ -209,7 +216,6 @@ export default function CreateOrderPage() {
   
   const handleAddItem = (product: Product | CartItem) => {
     setProductSearch('');
-    setOpenProductPopover(false);
 
     const existingItem = selectedItems.find(item => item.id === product.id);
     let newItems;
@@ -379,55 +385,61 @@ export default function CreateOrderPage() {
                 render={({ field }) => (
                   <FormItem className="flex flex-col">
                     <FormLabel>Cliente</FormLabel>
-                    <Popover open={openCustomerDialog} onOpenChange={setOpenCustomerDialog} modal={false}>
-                      <PopoverTrigger asChild>
-                        <FormControl>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            role="combobox"
-                            className={cn("w-full justify-between", !field.value && "text-muted-foreground")}
-                          >
-                            {field.value
-                              ? allCustomers.find(c => (c.cpf || `${c.name}-${c.phone}`) === field.value)?.name
-                              : "Selecione um cliente"}
-                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                          </Button>
-                        </FormControl>
-                      </PopoverTrigger>
-                      <PopoverContent className="w-[350px] p-0 z-[9999] pointer-events-auto" sideOffset={4}>
-                        <Command>
-                          <CommandInput placeholder="Buscar cliente por nome, CPF ou código..." />
-                          <CommandList>
-                            <CommandEmpty>Nenhum cliente encontrado.</CommandEmpty>
-                            <CommandGroup>
-                              {allCustomers && allCustomers.map(c => {
-                                const customerId = c.cpf || `${c.name}-${c.phone}`;
-                                return (
-                                  <CommandItem
-                                    key={customerId}
-                                    value={`${c.code || ''} ${c.name} ${c.cpf || ''} ${c.phone || ''}`.trim()}
-                                    onSelect={() => {
-                                      form.setValue("customerId", customerId, { shouldValidate: true });
-                                      setOpenCustomerDialog(false);
-                                    }}
-                                  >
-                                    <Check className={cn("mr-2 h-4 w-4", customerId === field.value ? "opacity-100" : "opacity-0")} />
-                                    <div className="flex flex-col items-start text-left">
-                                      <span>{c.name}</span>
-                                      <span className="text-xs text-muted-foreground">
-                                        {c.code ? `${c.code} • ` : ''}
-                                        {c.cpf || c.phone}
-                                      </span>
-                                    </div>
-                                  </CommandItem>
-                                );
-                              })}
-                            </CommandGroup>
-                          </CommandList>
-                        </Command>
-                      </PopoverContent>
-                    </Popover>
+                    <Select
+                      open={openCustomerPicker}
+                      onOpenChange={(open) => {
+                        setOpenCustomerPicker(open);
+                        if (!open) setCustomerSearch('');
+                      }}
+                      value={field.value}
+                      onValueChange={(selectedCustomerId) => {
+                        form.setValue("customerId", selectedCustomerId, { shouldValidate: true, shouldDirty: true, shouldTouch: true });
+                      }}
+                    >
+                      <FormControl>
+                        <SelectTrigger className={cn("h-10", !field.value && "text-muted-foreground")}>
+                          {(() => {
+                            if (!field.value) return <SelectValue placeholder="Selecione um cliente" />;
+                            const selectedCustomer = (allCustomers || []).find((c) => (c.cpf || `${c.name}-${c.phone}`) === field.value);
+                            if (!selectedCustomer) return <SelectValue placeholder="Selecione um cliente" />;
+                            const secondary = selectedCustomer.cpf || selectedCustomer.phone || '';
+                            return (
+                              <div className="flex flex-col items-start text-left min-w-0 w-full">
+                                <span className="truncate w-full">{selectedCustomer.name}</span>
+                                <span className="text-xs text-muted-foreground truncate w-full">
+                                  {selectedCustomer.code ? `${selectedCustomer.code} • ` : ''}
+                                  {secondary}
+                                </span>
+                              </div>
+                            );
+                          })()}
+                        </SelectTrigger>
+                      </FormControl>
+                      <SelectContent>
+                        <div className="p-2">
+                          <Input
+                            placeholder="Buscar cliente..."
+                            value={customerSearch}
+                            onChange={(e) => setCustomerSearch(e.target.value)}
+                            onKeyDown={(e) => e.stopPropagation()}
+                          />
+                        </div>
+                        {filteredCustomers.map((c) => {
+                          const customerId = c.cpf || `${c.name}-${c.phone}`;
+                          return (
+                            <SelectItem key={customerId} value={customerId}>
+                              <div className="flex flex-col items-start text-left min-w-0">
+                                <span className="truncate w-full">{c.name}</span>
+                                <span className="text-xs text-muted-foreground truncate w-full">
+                                  {c.code ? `${c.code} • ` : ''}
+                                  {c.cpf || c.phone}
+                                </span>
+                              </div>
+                            </SelectItem>
+                          );
+                        })}
+                      </SelectContent>
+                    </Select>
                     <FormMessage />
                   </FormItem>
                 )}
@@ -585,47 +597,44 @@ export default function CreateOrderPage() {
                     </Table>
                 </div>
                 <div className="mt-4 flex flex-wrap gap-4 items-center">
-                   <Popover open={openProductPopover} onOpenChange={setOpenProductPopover}>
-                        <PopoverTrigger asChild>
-                           <Button
-                            variant="outline"
-                            role="combobox"
-                            aria-expanded={openProductPopover}
-                            className="w-[300px] justify-between"
-                          >
-                            {"Selecione um produto..."}
-                            <ChevronsUpDown className="ml-2 h-4 w-4 shrink-0 opacity-50" />
-                          </Button>
-                        </PopoverTrigger>
-                        <PopoverContent 
-                            className="w-[300px] p-0"
-                        >
-                            <Command shouldFilter={false}>
-                                <CommandInput 
-                                        placeholder="Buscar por nome ou código..."
-                                        value={productSearch}
-                                        onValueChange={setProductSearch}
-                                />
-                                <CommandList>
-                                    <CommandEmpty>Nenhum produto encontrado.</CommandEmpty>
-                                    <CommandGroup>
-                                        {filteredProducts.map(p => (
-                                            <CommandItem
-                                                key={p.id}
-                                                onSelect={() => handleAddItem(p)}
-                                            >
-                                                <Check className={cn("mr-2 h-4 w-4", selectedItems.some(i => i.id === p.id) ? "opacity-100" : "opacity-0")} />
-                                                <div className="flex flex-col">
-                                                    <span className="font-semibold">{p.name}</span>
-                                                    <span className="text-xs text-muted-foreground">{p.code}</span>
-                                                </div>
-                                            </CommandItem>
-                                        ))}
-                                    </CommandGroup>
-                                </CommandList>
-                            </Command>
-                        </PopoverContent>
-                    </Popover>
+                  <Select
+                    open={openProductPicker}
+                    onOpenChange={(open) => {
+                      setOpenProductPicker(open);
+                      if (!open) setProductSearch('');
+                    }}
+                    onValueChange={(productId) => {
+                      const product = uniqueProducts.find((p) => p.id === productId);
+                      if (product) handleAddItem(product);
+                      setOpenProductPicker(false);
+                      setProductSearch('');
+                    }}
+                  >
+                    <SelectTrigger className="w-[300px]">
+                      <SelectValue placeholder="Selecione um produto..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <div className="p-2">
+                        <Input
+                          placeholder="Buscar produto..."
+                          value={productSearch}
+                          onChange={(e) => setProductSearch(e.target.value)}
+                          onKeyDown={(e) => e.stopPropagation()}
+                        />
+                      </div>
+                      {filteredProducts.map((p) => (
+                        <SelectItem key={p.id} value={p.id}>
+                          <div className="flex flex-col items-start text-left min-w-0">
+                            <span className="font-semibold truncate w-full">{p.name}</span>
+                            <span className="text-xs text-muted-foreground truncate w-full">
+                              {p.code ? `${p.code} • ` : ''}
+                              Estoque: {p.stock}
+                            </span>
+                          </div>
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                     <CustomProductForm onAdd={handleAddItem} />
                     <FormMessage>{form.formState.errors.items?.message || form.formState.errors.items?.root?.message}</FormMessage>
                 </div>
