@@ -31,7 +31,7 @@ import Image from 'next/image';
 import { Switch } from '@/components/ui/switch';
 import { useData } from '@/context/DataContext';
 import { getClientFirebase } from '@/lib/firebase-client';
-import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { collection, deleteDoc, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, setDoc, writeBatch } from 'firebase/firestore';
 
 const settingsSchema = z.object({
   storeName: z.string().min(3, 'O nome da loja é obrigatório.'),
@@ -44,6 +44,17 @@ const settingsSchema = z.object({
   commercialHourStart: z.string().optional(),
   commercialHourEnd: z.string().optional(),
 });
+
+type RestorePoint = {
+  id: string;
+  label?: string;
+  createdAt: string;
+  createdById?: string;
+  createdByName?: string;
+  version: number;
+  totalChunks: number;
+  sizeChars: number;
+};
 
 function AuditLogCard() {
     const { auditLogs, isLoading } = useAudit();
@@ -145,6 +156,10 @@ export default function ConfiguracaoPage() {
   
   const [dialogOpenFor, setDialogOpenFor] = useState<'resetOrders' | 'resetProducts' | 'resetFinancials' | 'resetAll' | null>(null);
   const [localPermissions, setLocalPermissions] = useState<RolePermissions | null>(null);
+  const [restorePoints, setRestorePoints] = useState<RestorePoint[]>([]);
+  const [restorePointLabel, setRestorePointLabel] = useState('');
+  const [restorePointBusyId, setRestorePointBusyId] = useState<string | null>(null);
+  const [isCreatingRestorePoint, setIsCreatingRestorePoint] = useState(false);
 
   const form = useForm<z.infer<typeof settingsSchema>>({
     resolver: zodResolver(settingsSchema),
@@ -177,6 +192,32 @@ export default function ConfiguracaoPage() {
     }
   }, [permissionsLoading, permissions]);
 
+  useEffect(() => {
+    if (user?.role !== 'admin') {
+      setRestorePoints([]);
+      return;
+    }
+
+    const { db } = getClientFirebase();
+    const q = query(collection(db, 'restorePoints'), orderBy('createdAt', 'desc'), limit(20));
+    const unsubscribe = onSnapshot(
+      q,
+      (snapshot) => {
+        const points = snapshot.docs.map((d) => {
+          const data = d.data() as RestorePoint;
+          return { ...data, id: data.id || d.id };
+        });
+        setRestorePoints(points);
+      },
+      (error) => {
+        console.error('Error fetching restorePoints:', error);
+        setRestorePoints([]);
+      }
+    );
+
+    return () => unsubscribe();
+  }, [user?.role]);
+
   const handleLogoUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
@@ -202,30 +243,60 @@ export default function ConfiguracaoPage() {
     toast({ title: 'Exportação Concluída!', description: `O arquivo ${filename} foi baixado.` });
   };
 
+  const buildFullBackup = async () => {
+    const { db } = getClientFirebase();
+    const customerCodeCounterSnap = await getDoc(doc(db, 'config', 'customerCodeCounter'));
+    const customerCodeCounter = customerCodeCounterSnap.exists() ? customerCodeCounterSnap.data() : null;
+
+    return {
+      version: 1,
+      exportedAt: new Date().toISOString(),
+      settings,
+      permissions,
+      customerCodeCounter,
+      products,
+      categories,
+      orders,
+      customers,
+      customersTrash: deletedCustomers,
+      users,
+      commissionPayments,
+      stockAudits,
+      avarias,
+      chatSessions,
+    };
+  };
+
+  const applyBackupData = async (data: any) => {
+    if (!data?.settings || !data?.products || !data?.orders || !data?.categories || !data?.users) {
+      throw new Error('Formato de arquivo de backup inválido.');
+    }
+
+    await restoreSettings(data.settings);
+    await restoreAdminData({
+      products: data.products,
+      orders: data.orders,
+      categories: data.categories,
+      commissionPayments: data.commissionPayments,
+      stockAudits: data.stockAudits,
+      avarias: data.avarias,
+      chatSessions: data.chatSessions,
+      customers: data.customers,
+      customersTrash: data.customersTrash,
+    }, logAction, user);
+    await restoreUsers(data.users);
+    if (data.permissions) {
+      await updatePermissions(data.permissions);
+    }
+    if (data.customerCodeCounter) {
+      const { db } = getClientFirebase();
+      await setDoc(doc(db, 'config', 'customerCodeCounter'), data.customerCodeCounter, { merge: true });
+    }
+  };
+
   const handleExportFullBackup = async () => {
     try {
-      const { db } = getClientFirebase();
-      const customerCodeCounterSnap = await getDoc(doc(db, 'config', 'customerCodeCounter'));
-      const customerCodeCounter = customerCodeCounterSnap.exists() ? customerCodeCounterSnap.data() : null;
-
-      const backup = {
-        version: 1,
-        exportedAt: new Date().toISOString(),
-        settings,
-        permissions,
-        customerCodeCounter,
-        products,
-        categories,
-        orders,
-        customers,
-        customersTrash: deletedCustomers,
-        users,
-        commissionPayments,
-        stockAudits,
-        avarias,
-        chatSessions,
-      };
-
+      const backup = await buildFullBackup();
       handleExport(backup, 'backup-completo');
     } catch (error) {
       console.error("Failed to export full backup:", error);
@@ -242,31 +313,7 @@ export default function ConfiguracaoPage() {
       try {
         const text = e.target?.result as string;
         const data = JSON.parse(text);
-
-        if (data.settings && data.products && data.orders && data.categories && data.users) {
-          await restoreSettings(data.settings);
-          await restoreAdminData({
-            products: data.products,
-            orders: data.orders,
-            categories: data.categories,
-            commissionPayments: data.commissionPayments,
-            stockAudits: data.stockAudits,
-            avarias: data.avarias,
-            chatSessions: data.chatSessions,
-            customers: data.customers,
-            customersTrash: data.customersTrash,
-          }, logAction, user);
-          await restoreUsers(data.users);
-          if (data.permissions) {
-             await updatePermissions(data.permissions);
-          }
-          if (data.customerCodeCounter) {
-            const { db } = getClientFirebase();
-            await setDoc(doc(db, 'config', 'customerCodeCounter'), data.customerCodeCounter, { merge: true });
-          }
-        } else {
-          throw new Error('Formato de arquivo de backup inválido.');
-        }
+        await applyBackupData(data);
       } catch (error) {
         console.error("Failed to restore backup:", error);
         toast({ title: 'Erro ao Restaurar', description: 'O arquivo de backup é inválido ou está corrompido.', variant: 'destructive' });
@@ -277,6 +324,172 @@ export default function ConfiguracaoPage() {
       }
     };
     reader.readAsText(file);
+  };
+
+  const chunkString = (value: string, chunkSize: number) => {
+    const chunks: string[] = [];
+    for (let i = 0; i < value.length; i += chunkSize) {
+      chunks.push(value.slice(i, i + chunkSize));
+    }
+    return chunks;
+  };
+
+  const getRestorePointPayload = async (restorePointId: string) => {
+    const { db } = getClientFirebase();
+    const chunksSnap = await getDocs(
+      query(collection(db, 'restorePoints', restorePointId, 'chunks'), orderBy('index', 'asc'))
+    );
+    return chunksSnap.docs.map((d) => (d.data() as any)?.data as string).join('');
+  };
+
+  const downloadJsonString = (json: string, filename: string) => {
+    const blob = new Blob([json], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = filename;
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
+
+  const formatCharsAsSize = (chars: number) => {
+    const bytes = chars * 2;
+    const kb = bytes / 1024;
+    const mb = kb / 1024;
+    if (mb >= 1) return `${mb.toFixed(2)} MB`;
+    if (kb >= 1) return `${kb.toFixed(0)} KB`;
+    return `${bytes} B`;
+  };
+
+  const handleCreateRestorePoint = async () => {
+    if (user?.role !== 'admin') return;
+    if (isCreatingRestorePoint) return;
+    setIsCreatingRestorePoint(true);
+    try {
+      const { db } = getClientFirebase();
+      const backup = await buildFullBackup();
+      const json = JSON.stringify(backup);
+      const chunkChars = 200000;
+      const chunks = chunkString(json, chunkChars);
+      const now = new Date().toISOString();
+      const restorePointId = `rp-${Date.now()}`;
+
+      const meta: RestorePoint = {
+        id: restorePointId,
+        label: restorePointLabel.trim() || undefined,
+        createdAt: now,
+        createdById: user?.id,
+        createdByName: user?.name,
+        version: 1,
+        totalChunks: chunks.length,
+        sizeChars: json.length,
+      };
+
+      await setDoc(doc(db, 'restorePoints', restorePointId), meta);
+
+      let batch = writeBatch(db);
+      let opCount = 0;
+      let batchBytes = 0;
+      const maxBatchBytes = 9_000_000;
+      for (let i = 0; i < chunks.length; i++) {
+        const chunkDocId = String(i).padStart(6, '0');
+        const chunkData = chunks[i];
+        const estimatedChunkBytes = chunkData.length * 2;
+        if (opCount > 0 && (opCount >= 400 || batchBytes + estimatedChunkBytes > maxBatchBytes)) {
+          await batch.commit();
+          batch = writeBatch(db);
+          opCount = 0;
+          batchBytes = 0;
+        }
+
+        batch.set(doc(db, 'restorePoints', restorePointId, 'chunks', chunkDocId), {
+          index: i,
+          data: chunkData,
+        });
+        opCount++;
+        batchBytes += estimatedChunkBytes;
+      }
+      if (opCount > 0) {
+        await batch.commit();
+      }
+
+      logAction('Ponto de Restauração', `Criado ponto de restauração ${restorePointId}.`, user);
+      toast({ title: 'Ponto de restauração criado!' });
+      setRestorePointLabel('');
+    } catch (error) {
+      console.error('Failed to create restore point:', error);
+      toast({ title: 'Erro', description: 'Não foi possível criar o ponto de restauração.', variant: 'destructive' });
+    } finally {
+      setIsCreatingRestorePoint(false);
+    }
+  };
+
+  const handleRestoreFromPoint = async (point: RestorePoint) => {
+    if (user?.role !== 'admin') return;
+    setRestorePointBusyId(point.id);
+    try {
+      const payload = await getRestorePointPayload(point.id);
+      const data = JSON.parse(payload);
+      await applyBackupData(data);
+      logAction('Restauração de Ponto', `Restaurado ponto de restauração ${point.id}.`, user);
+      toast({ title: 'Restauração concluída!' });
+    } catch (error) {
+      console.error('Failed to restore from restore point:', error);
+      toast({ title: 'Erro', description: 'Falha ao restaurar o ponto de restauração.', variant: 'destructive' });
+    } finally {
+      setRestorePointBusyId(null);
+    }
+  };
+
+  const handleDownloadRestorePoint = async (point: RestorePoint) => {
+    setRestorePointBusyId(point.id);
+    try {
+      const payload = await getRestorePointPayload(point.id);
+      const date = new Date(point.createdAt).toISOString().slice(0, 10);
+      const label = (point.label || point.id).replace(/[^\w\-]+/g, '-').slice(0, 40);
+      downloadJsonString(payload, `restore-point-${label}-${date}.json`);
+      toast({ title: 'Download iniciado!' });
+    } catch (error) {
+      console.error('Failed to download restore point:', error);
+      toast({ title: 'Erro', description: 'Não foi possível baixar o ponto de restauração.', variant: 'destructive' });
+    } finally {
+      setRestorePointBusyId(null);
+    }
+  };
+
+  const handleDeleteRestorePoint = async (point: RestorePoint) => {
+    if (user?.role !== 'admin') return;
+    setRestorePointBusyId(point.id);
+    try {
+      const { db } = getClientFirebase();
+      const chunksSnap = await getDocs(collection(db, 'restorePoints', point.id, 'chunks'));
+      if (!chunksSnap.empty) {
+        let batch = writeBatch(db);
+        let opCount = 0;
+        for (const d of chunksSnap.docs) {
+          batch.delete(d.ref);
+          opCount++;
+          if (opCount >= 400) {
+            await batch.commit();
+            batch = writeBatch(db);
+            opCount = 0;
+          }
+        }
+        if (opCount > 0) {
+          await batch.commit();
+        }
+      }
+      await deleteDoc(doc(db, 'restorePoints', point.id));
+      logAction('Ponto de Restauração', `Excluído ponto de restauração ${point.id}.`, user);
+      toast({ title: 'Ponto excluído!' });
+    } catch (error) {
+      console.error('Failed to delete restore point:', error);
+      toast({ title: 'Erro', description: 'Não foi possível excluir o ponto de restauração.', variant: 'destructive' });
+    } finally {
+      setRestorePointBusyId(null);
+    }
   };
   
   const handleReset = async (type: 'resetOrders' | 'resetProducts' | 'resetFinancials' | 'resetAll') => {
@@ -669,7 +882,137 @@ export default function ConfiguracaoPage() {
           </CardContent>
       </Card>
 
-       <Card className="border-destructive/50">
+      {user?.role === 'admin' && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <History className="h-6 w-6" />
+              Pontos de Restauração
+            </CardTitle>
+            <CardDescription>
+              Crie um ponto para voltar o sistema a um estado anterior.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-4">
+            <div className="flex flex-col md:flex-row gap-3">
+              <Input
+                value={restorePointLabel}
+                onChange={(e) => setRestorePointLabel(e.target.value)}
+                placeholder="Nome do ponto (opcional)"
+              />
+              <Button onClick={handleCreateRestorePoint} disabled={isCreatingRestorePoint}>
+                <Save className="mr-2 h-4 w-4" />
+                {isCreatingRestorePoint ? 'Salvando...' : 'Criar Ponto'}
+              </Button>
+            </div>
+
+            {restorePoints.length > 0 ? (
+              <div className="rounded-md border overflow-x-auto">
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Data</TableHead>
+                      <TableHead>Nome</TableHead>
+                      <TableHead>Criado por</TableHead>
+                      <TableHead className="text-right">Tamanho</TableHead>
+                      <TableHead className="text-right">Ações</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {restorePoints.map((point) => {
+                      const busy = restorePointBusyId === point.id;
+                      return (
+                        <TableRow key={point.id}>
+                          <TableCell className="text-xs whitespace-nowrap">
+                            <div className="flex items-center gap-1">
+                              <Calendar className="h-3 w-3" />
+                              {format(new Date(point.createdAt), "dd/MM/yyyy 'às' HH:mm", { locale: ptBR })}
+                            </div>
+                          </TableCell>
+                          <TableCell className="font-medium whitespace-nowrap">
+                            {point.label || point.id}
+                          </TableCell>
+                          <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
+                            {point.createdByName || '—'}
+                          </TableCell>
+                          <TableCell className="text-right text-sm whitespace-nowrap">
+                            {formatCharsAsSize(point.sizeChars || 0)}
+                          </TableCell>
+                          <TableCell className="text-right whitespace-nowrap">
+                            <div className="flex justify-end gap-2">
+                              <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => handleDownloadRestorePoint(point)}
+                                disabled={busy}
+                              >
+                                <FileDown className="mr-2 h-4 w-4" />
+                                Baixar
+                              </Button>
+
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <Button variant="default" size="sm" disabled={busy}>
+                                    <RotateCcw className="mr-2 h-4 w-4" />
+                                    Restaurar
+                                  </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>Restaurar este ponto?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      Essa ação substitui os dados atuais por este ponto de restauração.
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                    <AlertDialogAction onClick={() => handleRestoreFromPoint(point)}>
+                                      Restaurar
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+
+                              <AlertDialog>
+                                <AlertDialogTrigger asChild>
+                                  <Button variant="destructive" size="sm" disabled={busy}>
+                                    <Trash2 className="mr-2 h-4 w-4" />
+                                    Excluir
+                                  </Button>
+                                </AlertDialogTrigger>
+                                <AlertDialogContent>
+                                  <AlertDialogHeader>
+                                    <AlertDialogTitle>Excluir este ponto?</AlertDialogTitle>
+                                    <AlertDialogDescription>
+                                      Essa ação remove o ponto de restauração e seus dados.
+                                    </AlertDialogDescription>
+                                  </AlertDialogHeader>
+                                  <AlertDialogFooter>
+                                    <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                    <AlertDialogAction onClick={() => handleDeleteRestorePoint(point)}>
+                                      Excluir
+                                    </AlertDialogAction>
+                                  </AlertDialogFooter>
+                                </AlertDialogContent>
+                              </AlertDialog>
+                            </div>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
+                  </TableBody>
+                </Table>
+              </div>
+            ) : (
+              <div className="text-center py-10 text-muted-foreground border rounded-lg">
+                Nenhum ponto de restauração criado ainda.
+              </div>
+            )}
+          </CardContent>
+        </Card>
+      )}
+
+      <Card className="border-destructive/50">
           <CardHeader>
               <CardTitle className="flex items-center gap-2 text-destructive">
                   <AlertTriangle className="h-6 w-6" />
