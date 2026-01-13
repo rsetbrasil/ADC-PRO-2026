@@ -32,6 +32,7 @@ import { Switch } from '@/components/ui/switch';
 import { useData } from '@/context/DataContext';
 import { getClientFirebase } from '@/lib/firebase-client';
 import { collection, deleteDoc, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, setDoc, writeBatch } from 'firebase/firestore';
+import { deleteObject, getDownloadURL, getStorage, ref as storageRef, uploadString } from 'firebase/storage';
 
 const settingsSchema = z.object({
   storeName: z.string().min(3, 'O nome da loja é obrigatório.'),
@@ -52,8 +53,11 @@ type RestorePoint = {
   createdById?: string;
   createdByName?: string;
   version: number;
-  totalChunks: number;
-  sizeChars: number;
+  totalChunks?: number;
+  sizeChars?: number;
+  status?: 'writing' | 'ready' | 'failed';
+  storagePath?: string;
+  storageBytes?: number;
 };
 
 function AuditLogCard() {
@@ -334,12 +338,47 @@ export default function ConfiguracaoPage() {
     return chunks;
   };
 
-  const getRestorePointPayload = async (restorePointId: string) => {
+  const getRestorePointPayload = async (point: RestorePoint) => {
+    if (point.storagePath) {
+      const { app } = getClientFirebase();
+      const storage = getStorage(app);
+      const url = await getDownloadURL(storageRef(storage, point.storagePath));
+      const response = await fetch(url);
+      const payload = await response.text();
+      if (!payload) throw new Error('Ponto de restauração sem dados.');
+      if (point.sizeChars && payload.length !== point.sizeChars) {
+        throw new Error('Ponto de restauração incompleto (tamanho divergente).');
+      }
+      return payload;
+    }
+
     const { db } = getClientFirebase();
-    const chunksSnap = await getDocs(
-      query(collection(db, 'restorePoints', restorePointId, 'chunks'), orderBy('index', 'asc'))
+    const chunksSnap = await getDocs(query(collection(db, 'restorePoints', point.id, 'chunks'), orderBy('index', 'asc')));
+    if (point.totalChunks && chunksSnap.size !== point.totalChunks) {
+      throw new Error('Ponto de restauração incompleto (chunks faltando).');
+    }
+    const payload = chunksSnap.docs.map((d) => ((d.data() as any)?.data as string) || '').join('');
+    if (!payload) throw new Error('Ponto de restauração sem dados.');
+    if (point.sizeChars && payload.length !== point.sizeChars) {
+      throw new Error('Ponto de restauração incompleto (tamanho divergente).');
+    }
+    return payload;
+  };
+
+  const isRestorePointIntegrityError = (error: any) => {
+    const message = error?.message;
+    if (typeof message !== 'string') return false;
+    return (
+      message.startsWith('Ponto de restauração incompleto') ||
+      message.startsWith('Ponto de restauração sem dados')
     );
-    return chunksSnap.docs.map((d) => (d.data() as any)?.data as string).join('');
+  };
+
+  const markRestorePointFailed = async (restorePointId: string) => {
+    try {
+      const { db } = getClientFirebase();
+      await setDoc(doc(db, 'restorePoints', restorePointId), { status: 'failed' }, { merge: true });
+    } catch {}
   };
 
   const downloadJsonString = (json: string, filename: string) => {
@@ -367,14 +406,32 @@ export default function ConfiguracaoPage() {
     if (user?.role !== 'admin') return;
     if (isCreatingRestorePoint) return;
     setIsCreatingRestorePoint(true);
+    let restorePointId: string | null = null;
     try {
       const { db } = getClientFirebase();
       const backup = await buildFullBackup();
       const json = JSON.stringify(backup);
-      const chunkChars = 200000;
-      const chunks = chunkString(json, chunkChars);
       const now = new Date().toISOString();
-      const restorePointId = `rp-${Date.now()}`;
+      restorePointId = `rp-${Date.now()}`;
+
+      const sleep = (ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms));
+
+      const runWithBackoff = async <T,>(fn: () => Promise<T>) => {
+        let delayMs = 250;
+        for (let attempt = 0; attempt < 7; attempt++) {
+          try {
+            return await fn();
+          } catch (error: any) {
+            const code = error?.code as string | undefined;
+            if (code !== 'resource-exhausted' && code !== 'unavailable') {
+              throw error;
+            }
+            await sleep(delayMs);
+            delayMs = Math.min(10_000, Math.floor(delayMs * 2));
+          }
+        }
+        return await fn();
+      };
 
       const meta: RestorePoint = {
         id: restorePointId,
@@ -383,43 +440,40 @@ export default function ConfiguracaoPage() {
         createdById: user?.id,
         createdByName: user?.name,
         version: 1,
-        totalChunks: chunks.length,
         sizeChars: json.length,
+        status: 'writing',
       };
 
-      await setDoc(doc(db, 'restorePoints', restorePointId), meta);
+      const metaRef = doc(db, 'restorePoints', restorePointId);
+      await setDoc(metaRef, meta);
 
-      let batch = writeBatch(db);
-      let opCount = 0;
-      let batchBytes = 0;
-      const maxBatchBytes = 9_000_000;
-      for (let i = 0; i < chunks.length; i++) {
-        const chunkDocId = String(i).padStart(6, '0');
-        const chunkData = chunks[i];
-        const estimatedChunkBytes = chunkData.length * 2;
-        if (opCount > 0 && (opCount >= 400 || batchBytes + estimatedChunkBytes > maxBatchBytes)) {
-          await batch.commit();
-          batch = writeBatch(db);
-          opCount = 0;
-          batchBytes = 0;
-        }
+      const { app } = getClientFirebase();
+      const storage = getStorage(app);
+      const path = `restorePoints/${restorePointId}.json`;
+      const uploadResult = await runWithBackoff(() =>
+        uploadString(storageRef(storage, path), json, 'raw', { contentType: 'application/json' })
+      );
 
-        batch.set(doc(db, 'restorePoints', restorePointId, 'chunks', chunkDocId), {
-          index: i,
-          data: chunkData,
-        });
-        opCount++;
-        batchBytes += estimatedChunkBytes;
-      }
-      if (opCount > 0) {
-        await batch.commit();
-      }
-
+      await setDoc(
+        metaRef,
+        {
+          status: 'ready',
+          storagePath: path,
+          storageBytes: uploadResult.metadata.size,
+        },
+        { merge: true }
+      );
       logAction('Ponto de Restauração', `Criado ponto de restauração ${restorePointId}.`, user);
       toast({ title: 'Ponto de restauração criado!' });
       setRestorePointLabel('');
     } catch (error) {
       console.error('Failed to create restore point:', error);
+      try {
+        if (restorePointId) {
+          const { db } = getClientFirebase();
+          await setDoc(doc(db, 'restorePoints', restorePointId), { status: 'failed' }, { merge: true });
+        }
+      } catch {}
       toast({ title: 'Erro', description: 'Não foi possível criar o ponto de restauração.', variant: 'destructive' });
     } finally {
       setIsCreatingRestorePoint(false);
@@ -430,14 +484,23 @@ export default function ConfiguracaoPage() {
     if (user?.role !== 'admin') return;
     setRestorePointBusyId(point.id);
     try {
-      const payload = await getRestorePointPayload(point.id);
+      if (point.status !== 'ready') {
+        toast({ title: 'Indisponível', description: 'Este ponto não está pronto para restaurar.' });
+        return;
+      }
+      const payload = await getRestorePointPayload(point);
       const data = JSON.parse(payload);
       await applyBackupData(data);
       logAction('Restauração de Ponto', `Restaurado ponto de restauração ${point.id}.`, user);
       toast({ title: 'Restauração concluída!' });
     } catch (error) {
-      console.error('Failed to restore from restore point:', error);
-      toast({ title: 'Erro', description: 'Falha ao restaurar o ponto de restauração.', variant: 'destructive' });
+      if (isRestorePointIntegrityError(error)) {
+        await markRestorePointFailed(point.id);
+        toast({ title: 'Erro', description: (error as any)?.message, variant: 'destructive' });
+      } else {
+        console.error('Failed to restore from restore point:', error);
+        toast({ title: 'Erro', description: 'Falha ao restaurar o ponto de restauração.', variant: 'destructive' });
+      }
     } finally {
       setRestorePointBusyId(null);
     }
@@ -446,14 +509,23 @@ export default function ConfiguracaoPage() {
   const handleDownloadRestorePoint = async (point: RestorePoint) => {
     setRestorePointBusyId(point.id);
     try {
-      const payload = await getRestorePointPayload(point.id);
+      if (point.status !== 'ready') {
+        toast({ title: 'Indisponível', description: 'Este ponto não está pronto para baixar.' });
+        return;
+      }
+      const payload = await getRestorePointPayload(point);
       const date = new Date(point.createdAt).toISOString().slice(0, 10);
       const label = (point.label || point.id).replace(/[^\w\-]+/g, '-').slice(0, 40);
       downloadJsonString(payload, `restore-point-${label}-${date}.json`);
       toast({ title: 'Download iniciado!' });
     } catch (error) {
-      console.error('Failed to download restore point:', error);
-      toast({ title: 'Erro', description: 'Não foi possível baixar o ponto de restauração.', variant: 'destructive' });
+      if (isRestorePointIntegrityError(error)) {
+        await markRestorePointFailed(point.id);
+        toast({ title: 'Erro', description: (error as any)?.message, variant: 'destructive' });
+      } else {
+        console.error('Failed to download restore point:', error);
+        toast({ title: 'Erro', description: 'Não foi possível baixar o ponto de restauração.', variant: 'destructive' });
+      }
     } finally {
       setRestorePointBusyId(null);
     }
@@ -464,21 +536,27 @@ export default function ConfiguracaoPage() {
     setRestorePointBusyId(point.id);
     try {
       const { db } = getClientFirebase();
-      const chunksSnap = await getDocs(collection(db, 'restorePoints', point.id, 'chunks'));
-      if (!chunksSnap.empty) {
-        let batch = writeBatch(db);
-        let opCount = 0;
-        for (const d of chunksSnap.docs) {
-          batch.delete(d.ref);
-          opCount++;
-          if (opCount >= 400) {
-            await batch.commit();
-            batch = writeBatch(db);
-            opCount = 0;
+      if (point.storagePath) {
+        const { app } = getClientFirebase();
+        const storage = getStorage(app);
+        await deleteObject(storageRef(storage, point.storagePath));
+      } else {
+        const chunksSnap = await getDocs(collection(db, 'restorePoints', point.id, 'chunks'));
+        if (!chunksSnap.empty) {
+          let batch = writeBatch(db);
+          let opCount = 0;
+          for (const d of chunksSnap.docs) {
+            batch.delete(d.ref);
+            opCount++;
+            if (opCount >= 400) {
+              await batch.commit();
+              batch = writeBatch(db);
+              opCount = 0;
+            }
           }
-        }
-        if (opCount > 0) {
-          await batch.commit();
+          if (opCount > 0) {
+            await batch.commit();
+          }
         }
       }
       await deleteDoc(doc(db, 'restorePoints', point.id));
@@ -914,6 +992,7 @@ export default function ConfiguracaoPage() {
                       <TableHead>Data</TableHead>
                       <TableHead>Nome</TableHead>
                       <TableHead>Criado por</TableHead>
+                      <TableHead>Status</TableHead>
                       <TableHead className="text-right">Tamanho</TableHead>
                       <TableHead className="text-right">Ações</TableHead>
                     </TableRow>
@@ -921,6 +1000,8 @@ export default function ConfiguracaoPage() {
                   <TableBody>
                     {restorePoints.map((point) => {
                       const busy = restorePointBusyId === point.id;
+                      const status = point.status || 'legacy';
+                      const isReady = status === 'ready';
                       return (
                         <TableRow key={point.id}>
                           <TableCell className="text-xs whitespace-nowrap">
@@ -935,6 +1016,17 @@ export default function ConfiguracaoPage() {
                           <TableCell className="text-sm text-muted-foreground whitespace-nowrap">
                             {point.createdByName || '—'}
                           </TableCell>
+                          <TableCell className="whitespace-nowrap">
+                            {status === 'ready' ? (
+                              <Badge variant="secondary">Pronto</Badge>
+                            ) : status === 'writing' ? (
+                              <Badge variant="outline">Salvando...</Badge>
+                            ) : status === 'failed' ? (
+                              <Badge variant="destructive">Falhou</Badge>
+                            ) : (
+                              <Badge variant="outline">Antigo</Badge>
+                            )}
+                          </TableCell>
                           <TableCell className="text-right text-sm whitespace-nowrap">
                             {formatCharsAsSize(point.sizeChars || 0)}
                           </TableCell>
@@ -944,7 +1036,7 @@ export default function ConfiguracaoPage() {
                                 variant="outline"
                                 size="sm"
                                 onClick={() => handleDownloadRestorePoint(point)}
-                                disabled={busy}
+                                disabled={busy || !isReady}
                               >
                                 <FileDown className="mr-2 h-4 w-4" />
                                 Baixar
@@ -952,7 +1044,7 @@ export default function ConfiguracaoPage() {
 
                               <AlertDialog>
                                 <AlertDialogTrigger asChild>
-                                  <Button variant="default" size="sm" disabled={busy}>
+                                  <Button variant="default" size="sm" disabled={busy || !isReady}>
                                     <RotateCcw className="mr-2 h-4 w-4" />
                                     Restaurar
                                   </Button>
