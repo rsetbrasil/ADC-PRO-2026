@@ -2,7 +2,7 @@
 
 'use client';
 
-import React, { createContext, useContext, ReactNode, useCallback, useState, useEffect, useMemo } from 'react';
+import React, { createContext, useContext, ReactNode, useCallback, useState, useEffect, useMemo, useRef } from 'react';
 import type { Order, Product, Installment, CustomerInfo, Category, User, CommissionPayment, Payment, StockAudit, Avaria, ChatSession } from '@/lib/types';
 import { useToast } from '@/hooks/use-toast';
 import { getClientFirebase } from '@/lib/firebase-client';
@@ -141,6 +141,7 @@ interface AdminContextType {
   updateAvaria: (avariaId: string, avariaData: Partial<Omit<Avaria, 'id'>>, logAction: LogAction, user: User | null) => Promise<void>;
   deleteAvaria: (avariaId: string, logAction: LogAction, user: User | null) => Promise<void>;
   emptyTrash: (logAction: LogAction, user: User | null) => Promise<void>;
+  acknowledgeOnlineOrder: (orderId: string) => void;
   // Admin Data states
   orders: Order[];
   commissionPayments: CommissionPayment[];
@@ -161,6 +162,23 @@ export const AdminProvider = ({ children }: { children: ReactNode }) => {
   const { products, categories } = useData();
   const { toast } = useToast();
   const { user, users } = useAuth();
+  const notifiedOnlineOrderIdsRef = useRef<Set<string>>(new Set());
+  const isOrdersSnapshotReadyRef = useRef(false);
+  const onlineOrderSirenRef = useRef<{
+    activeOrderId: string | null;
+    ctx: any | null;
+    oscillator: any | null;
+    gain: any | null;
+    intervalId: number | null;
+    resumeHandler: (() => void) | null;
+  }>({
+    activeOrderId: null,
+    ctx: null,
+    oscillator: null,
+    gain: null,
+    intervalId: null,
+    resumeHandler: null,
+  });
 
   const allowEmptyProductsFor = useCallback((ms: number) => {
     if (typeof window === 'undefined') return;
@@ -179,10 +197,179 @@ export const AdminProvider = ({ children }: { children: ReactNode }) => {
   const [customers, setCustomers] = useState<CustomerInfo[]>([]);
   const [deletedCustomers, setDeletedCustomers] = useState<CustomerInfo[]>([]);
 
+  const startOnlineOrderSiren = useCallback((orderId: string) => {
+    if (typeof window === 'undefined') return;
+    if (!orderId) return;
+
+    try {
+      localStorage.setItem('activeOnlineOrderSirenId', orderId);
+    } catch {
+    }
+
+    const state = onlineOrderSirenRef.current;
+    state.activeOrderId = orderId;
+
+    if (state.ctx && state.oscillator && state.gain) {
+      try {
+        if (state.ctx.state === 'suspended') {
+          state.ctx.resume().catch(() => {});
+        }
+      } catch {
+      }
+      return;
+    }
+
+    try {
+      const AnyAudioContext = (window as any).AudioContext || (window as any).webkitAudioContext;
+      if (!AnyAudioContext) return;
+
+      const ctx = new AnyAudioContext();
+      const oscillator = ctx.createOscillator();
+      const gain = ctx.createGain();
+
+      oscillator.type = 'square';
+      oscillator.frequency.setValueAtTime(740, ctx.currentTime);
+      gain.gain.setValueAtTime(0.0001, ctx.currentTime);
+      gain.gain.linearRampToValueAtTime(0.55, ctx.currentTime + 0.02);
+
+      oscillator.connect(gain);
+      gain.connect(ctx.destination);
+      oscillator.start();
+
+      let high = false;
+      const intervalId = window.setInterval(() => {
+        try {
+          if (ctx.state === 'suspended') return;
+          high = !high;
+          const now = ctx.currentTime;
+          const nextFreq = high ? 1180 : 740;
+          oscillator.frequency.cancelScheduledValues(now);
+          oscillator.frequency.setValueAtTime(oscillator.frequency.value || nextFreq, now);
+          oscillator.frequency.linearRampToValueAtTime(nextFreq, now + 0.15);
+          gain.gain.cancelScheduledValues(now);
+          gain.gain.setValueAtTime(gain.gain.value || 0.55, now);
+          gain.gain.linearRampToValueAtTime(high ? 0.65 : 0.5, now + 0.15);
+        } catch {
+        }
+      }, 220);
+
+      const resume = () => {
+        try {
+          if (ctx.state === 'suspended') {
+            ctx.resume().catch(() => {});
+          }
+        } catch {
+        }
+      };
+
+      state.ctx = ctx;
+      state.oscillator = oscillator;
+      state.gain = gain;
+      state.intervalId = intervalId;
+      state.resumeHandler = resume;
+
+      resume();
+      window.addEventListener('pointerdown', resume, { passive: true });
+      window.addEventListener('keydown', resume);
+    } catch {
+    }
+  }, []);
+
+  const stopOnlineOrderSiren = useCallback((orderId?: string) => {
+    if (typeof window === 'undefined') return;
+
+    const state = onlineOrderSirenRef.current;
+    if (orderId && state.activeOrderId && orderId !== state.activeOrderId) return;
+
+    state.activeOrderId = null;
+
+    try {
+      localStorage.removeItem('activeOnlineOrderSirenId');
+    } catch {
+    }
+
+    try {
+      if (state.intervalId) {
+        window.clearInterval(state.intervalId);
+      }
+    } catch {
+    }
+
+    try {
+      if (state.resumeHandler) {
+        window.removeEventListener('pointerdown', state.resumeHandler as any);
+        window.removeEventListener('keydown', state.resumeHandler as any);
+      }
+    } catch {
+    }
+
+    try {
+      if (state.oscillator) {
+        state.oscillator.stop();
+      }
+    } catch {
+    }
+
+    try {
+      if (state.ctx) {
+        state.ctx.close().catch(() => {});
+      }
+    } catch {
+    }
+
+    state.ctx = null;
+    state.oscillator = null;
+    state.gain = null;
+    state.intervalId = null;
+    state.resumeHandler = null;
+  }, []);
+
+  const acknowledgeOnlineOrder = useCallback((orderId: string) => {
+    stopOnlineOrderSiren(orderId);
+  }, [stopOnlineOrderSiren]);
+
+  useEffect(() => {
+    return () => {
+      stopOnlineOrderSiren();
+    };
+  }, [stopOnlineOrderSiren]);
+
   // Effect for fetching admin-specific data
   useEffect(() => {
     const { db } = getClientFirebase();
     const unsubscribes: (() => void)[] = [];
+
+    const canNotify = !!user && ['admin', 'gerente', 'vendedor'].includes(user.role);
+    if (canNotify && typeof window !== 'undefined') {
+      try {
+        const activeId = localStorage.getItem('activeOnlineOrderSirenId');
+        if (activeId) startOnlineOrderSiren(activeId);
+      } catch {
+      }
+    }
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('notifiedOnlineOrderIds');
+        const arr = raw ? (JSON.parse(raw) as unknown) : [];
+        if (Array.isArray(arr)) {
+          const next = new Set<string>();
+          arr.slice(0, 200).forEach((id) => {
+            if (typeof id === 'string') next.add(id);
+          });
+          notifiedOnlineOrderIdsRef.current = next;
+        }
+      } catch {
+      }
+    }
+
+    const persistNotifiedIds = () => {
+      if (typeof window === 'undefined') return;
+      try {
+        const ids = Array.from(notifiedOnlineOrderIdsRef.current).slice(-200);
+        localStorage.setItem('notifiedOnlineOrderIds', JSON.stringify(ids));
+      } catch {
+      }
+    };
 
     const setupListener = (collectionName: string, setter: React.Dispatch<React.SetStateAction<any[]>>, orderField = 'createdAt') => {
         const q = query(collection(db, collectionName), orderBy(orderField, 'desc'));
@@ -192,13 +379,57 @@ export const AdminProvider = ({ children }: { children: ReactNode }) => {
         unsubscribes.push(unsubscribe);
     };
 
-    setupListener('orders', setOrders, 'date');
+    {
+      const q = query(collection(db, 'orders'), orderBy('date', 'desc'));
+      const unsubscribe = onSnapshot(
+        q,
+        (snapshot) => {
+          setOrders(snapshot.docs.map((d) => ({ ...d.data(), id: d.id } as Order)));
+
+          if (!canNotify) {
+            isOrdersSnapshotReadyRef.current = true;
+            return;
+          }
+
+          if (!isOrdersSnapshotReadyRef.current) {
+            isOrdersSnapshotReadyRef.current = true;
+            return;
+          }
+
+          const addedOnlineOrders = snapshot
+            .docChanges()
+            .filter((c) => c.type === 'added')
+            .map((c) => ({ ...c.doc.data(), id: c.doc.id } as Order))
+            .filter((o) => o.source === 'Online');
+
+          if (addedOnlineOrders.length === 0) return;
+
+          const formatCurrency = (value: number) =>
+            new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
+
+          addedOnlineOrders.forEach((o) => {
+            if (!o.id) return;
+            if (notifiedOnlineOrderIdsRef.current.has(o.id)) return;
+            notifiedOnlineOrderIdsRef.current.add(o.id);
+            persistNotifiedIds();
+            startOnlineOrderSiren(o.id);
+            toast({
+              title: 'Novo pedido do catálogo',
+              description: `${o.customer?.name || 'Cliente'} • ${formatCurrency(o.total || 0)} • Pedido ${o.id}`,
+            });
+          });
+        },
+        (error) => console.error('Error fetching orders:', error)
+      );
+      unsubscribes.push(unsubscribe);
+    }
+
     setupListener('commissionPayments', setCommissionPayments, 'paymentDate');
     setupListener('stockAudits', setStockAudits);
     setupListener('avarias', setAvarias);
     
     return () => unsubscribes.forEach(unsub => unsub());
-  }, []);
+  }, [toast, user, startOnlineOrderSiren]);
 
   const addCustomer = useCallback(async (customerData: CustomerInfo, logAction: LogAction, user: User | null) => {
     const { db } = getClientFirebase();
@@ -2009,6 +2240,7 @@ export const AdminProvider = ({ children }: { children: ReactNode }) => {
     restoreAdminData, resetOrders, resetProducts, resetFinancials, resetAllAdminData,
     saveStockAudit, addAvaria, updateAvaria, deleteAvaria,
     emptyTrash,
+    acknowledgeOnlineOrder,
     // Admin Data states
     orders,
     commissionPayments,
@@ -2029,6 +2261,7 @@ export const AdminProvider = ({ children }: { children: ReactNode }) => {
     restoreAdminData, resetOrders, resetProducts, resetFinancials, resetAllAdminData,
     saveStockAudit, addAvaria, updateAvaria, deleteAvaria,
     emptyTrash,
+    acknowledgeOnlineOrder,
     orders, commissionPayments, stockAudits, avarias, chatSessions, customersForUI, deletedCustomers, customerOrders, customerFinancials, financialSummary, commissionSummary
   ]);
 
