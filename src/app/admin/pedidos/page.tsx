@@ -116,7 +116,7 @@ const months = [
 ];
 
 export default function OrdersAdminPage() {
-  const { updateOrderStatus, recordInstallmentPayment, updateOrderDetails, updateInstallmentDueDate, deleteOrder, permanentlyDeleteOrder, reversePayment, emptyTrash, updateInstallmentAmount, acknowledgeOnlineOrder } = useAdmin();
+  const { updateOrderStatus, recordInstallmentPayment, updateOrderDetails, updateInstallmentDueDate, deleteOrder, permanentlyDeleteOrder, reversePayment, emptyTrash, updateInstallmentAmount } = useAdmin();
   const { orders } = useAdminData();
   const { products } = useData();
   const { user, users } = useAuth();
@@ -314,7 +314,6 @@ export default function OrdersAdminPage() {
   }, [orders, selectedOrder]);
 
   const handleOpenDetails = (order: Order) => {
-    acknowledgeOnlineOrder(order.id);
     setSelectedOrder(order);
     setInstallmentsInput(order.installments);
     setEditedInstallmentValues({});

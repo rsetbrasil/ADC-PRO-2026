@@ -102,7 +102,7 @@ const resizeImage = (file: File, MAX_WIDTH = 1920, MAX_HEIGHT = 1080): Promise<s
 };
 
 export default function CustomersAdminPage() {
-  const { updateCustomer, recordInstallmentPayment, updateInstallmentDueDate, updateOrderDetails, reversePayment, importCustomers, addCustomer, deleteCustomer, restoreCustomerFromTrash, updateOrderStatus, generateCustomerCodes, acknowledgeOnlineOrder } = useAdmin();
+  const { updateCustomer, recordInstallmentPayment, updateInstallmentDueDate, updateOrderDetails, reversePayment, importCustomers, addCustomer, deleteCustomer, restoreCustomerFromTrash, updateOrderStatus, generateCustomerCodes } = useAdmin();
   const { customers, customerOrders, customerFinancials, deletedCustomers } = useAdminData();
   const { user, users } = useAuth();
   const { settings } = useSettings();
@@ -201,7 +201,6 @@ export default function CustomersAdminPage() {
 
   
   const handleOpenPaymentDialog = (order: Order, installment: Installment) => {
-    acknowledgeOnlineOrder(order.id);
     setOrderForPayment(order);
     setInstallmentToPay(installment);
     setPaymentDialogOpen(true);
@@ -834,14 +833,7 @@ Não esqueça de enviar o comprovante!`;
                         </Card>
                     </div>
                     {ordersForSelectedCustomer.length > 0 ? (
-                    <Accordion
-                        type="single"
-                        collapsible
-                        className="w-full space-y-2"
-                        onValueChange={(value) => {
-                            if (value) acknowledgeOnlineOrder(value);
-                        }}
-                    >
+                    <Accordion type="single" collapsible className="w-full space-y-2">
                         {ordersForSelectedCustomer.map((order) => {
                             const isCrediario = !order.paymentMethod || order.paymentMethod === 'Crediário';
                             const allInstallmentsPaid = isCrediario &&
