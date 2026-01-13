@@ -114,6 +114,7 @@ interface AdminContextType {
   updateCustomer: (oldCustomer: CustomerInfo, updatedCustomerData: CustomerInfo, logAction: LogAction, user: User | null) => Promise<void>;
   deleteCustomer: (customer: CustomerInfo, logAction: LogAction, user: User | null) => Promise<void>;
   restoreCustomerFromTrash: (customer: CustomerInfo, logAction: LogAction, user: User | null) => Promise<void>;
+  permanentlyDeleteCustomerFromTrash: (customer: CustomerInfo, logAction: LogAction, user: User | null) => Promise<void>;
   importCustomers: (csvData: string, logAction: LogAction, user: User | null) => Promise<void>;
   updateOrderDetails: (orderId: string, details: Partial<Order> & { downPayment?: number, resetDownPayment?: boolean }, logAction: LogAction, user: User | null) => Promise<void>;
   addProduct: (productData: Omit<Product, 'id' | 'data-ai-hint' | 'createdAt'>, logAction: LogAction, user: User | null) => Promise<void>;
@@ -1684,6 +1685,35 @@ export const AdminProvider = ({ children }: { children: ReactNode }) => {
     }
   }, [toast]);
 
+  const permanentlyDeleteCustomerFromTrash = useCallback(async (customer: CustomerInfo, logAction: LogAction, user: User | null) => {
+    const { db } = getClientFirebase();
+    if (!canAccessCustomersTrash(user)) {
+      toast({ title: 'Acesso negado', description: 'Você não tem permissão para acessar a lixeira.', variant: 'destructive' });
+      return;
+    }
+
+    const cpf = normalizeCpf(customer.cpf || '');
+    if (cpf.length !== 11) {
+      toast({ title: 'Erro', description: 'CPF inválido.', variant: 'destructive' });
+      return;
+    }
+
+    const trashRef = doc(db, 'customersTrash', cpf);
+    try {
+      const snap = await getDoc(trashRef);
+      if (!snap.exists()) {
+        toast({ title: 'Erro', description: 'Registro não encontrado na lixeira.', variant: 'destructive' });
+        return;
+      }
+
+      await deleteDoc(trashRef);
+      logAction('Lixeira - Excluir Definitivo Cliente', `Cliente ${(snap.data() as CustomerInfo).name} (CPF: ${cpf}) foi excluído definitivamente da lixeira.`, user);
+      toast({ title: 'Cliente Excluído!', description: 'O contato foi removido da lixeira.', variant: 'destructive' });
+    } catch (e) {
+      errorEmitter.emit('permission-error', new FirestorePermissionError({ path: trashRef.path, operation: 'delete' }));
+    }
+  }, [toast]);
+
   const importCustomers = useCallback(async (csvData: string, logAction: LogAction, user: User | null) => {
     if (user?.role !== 'admin') {
       toast({ title: 'Acesso negado', description: 'Apenas administradores podem executar esta operação.', variant: 'destructive' });
@@ -2072,7 +2102,7 @@ export const AdminProvider = ({ children }: { children: ReactNode }) => {
   }, [orders, toast]);
   
   const value = useMemo(() => ({
-    addOrder, addCustomer, generateCustomerCodes, deleteOrder, permanentlyDeleteOrder, updateOrderStatus, recordInstallmentPayment, reversePayment, updateInstallmentDueDate, updateInstallmentAmount, updateCustomer, deleteCustomer, restoreCustomerFromTrash, importCustomers, updateOrderDetails,
+    addOrder, addCustomer, generateCustomerCodes, deleteOrder, permanentlyDeleteOrder, updateOrderStatus, recordInstallmentPayment, reversePayment, updateInstallmentDueDate, updateInstallmentAmount, updateCustomer, deleteCustomer, restoreCustomerFromTrash, permanentlyDeleteCustomerFromTrash, importCustomers, updateOrderDetails,
     addProduct, updateProduct, deleteProduct, importProducts,
     addCategory, deleteCategory, updateCategoryName, addSubcategory, updateSubcategory, deleteSubcategory, moveCategory, reorderSubcategories, moveSubcategory,
     payCommissions, reverseCommissionPayment,
@@ -2092,7 +2122,7 @@ export const AdminProvider = ({ children }: { children: ReactNode }) => {
     financialSummary,
     commissionSummary,
   }), [
-    addOrder, addCustomer, generateCustomerCodes, deleteOrder, permanentlyDeleteOrder, updateOrderStatus, recordInstallmentPayment, reversePayment, updateInstallmentDueDate, updateInstallmentAmount, updateCustomer, deleteCustomer, restoreCustomerFromTrash, importCustomers, updateOrderDetails,
+    addOrder, addCustomer, generateCustomerCodes, deleteOrder, permanentlyDeleteOrder, updateOrderStatus, recordInstallmentPayment, reversePayment, updateInstallmentDueDate, updateInstallmentAmount, updateCustomer, deleteCustomer, restoreCustomerFromTrash, permanentlyDeleteCustomerFromTrash, importCustomers, updateOrderDetails,
     addProduct, updateProduct, deleteProduct, importProducts,
     addCategory, deleteCategory, updateCategoryName, addSubcategory, updateSubcategory, deleteSubcategory, moveCategory, reorderSubcategories, moveSubcategory,
     payCommissions, reverseCommissionPayment,

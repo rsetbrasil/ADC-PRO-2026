@@ -21,7 +21,7 @@ import { useToast } from '@/hooks/use-toast';
 import { Accordion, AccordionContent, AccordionItem, AccordionTrigger } from '@/components/ui/accordion';
 import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
 import { Calendar } from '@/components/ui/calendar';
-import { cn } from '@/lib/utils';
+import { cn, maskCpf, maskPhone, maskZip, onlyDigits } from '@/lib/utils';
 import { Textarea } from '@/components/ui/textarea';
 import { useAuth } from '@/context/AuthContext';
 import PaymentDialog from '@/components/PaymentDialog';
@@ -44,18 +44,6 @@ const getCustomerKey = (customer: CustomerInfo | null) => {
   if (!customer) return '';
   return customer.cpf?.replace(/\D/g, '') || `${customer.name}-${customer.phone}`;
 }
-
-const formatPhone = (value: string) => {
-    if (!value) return '';
-    const digitsOnly = value.replace(/\D/g, '');
-    if (digitsOnly.length <= 2) {
-      return `(${digitsOnly}`;
-    }
-    if (digitsOnly.length <= 7) {
-      return `(${digitsOnly.slice(0, 2)}) ${digitsOnly.slice(2)}`;
-    }
-    return `(${digitsOnly.slice(0, 2)}) ${digitsOnly.slice(2, 7)}-${digitsOnly.slice(7, 11)}`;
-};
 
 
 const resizeImage = (file: File, MAX_WIDTH = 1920, MAX_HEIGHT = 1080): Promise<string> => {
@@ -102,7 +90,7 @@ const resizeImage = (file: File, MAX_WIDTH = 1920, MAX_HEIGHT = 1080): Promise<s
 };
 
 export default function CustomersAdminPage() {
-  const { updateCustomer, recordInstallmentPayment, updateInstallmentDueDate, updateOrderDetails, reversePayment, importCustomers, addCustomer, deleteCustomer, restoreCustomerFromTrash, updateOrderStatus, generateCustomerCodes } = useAdmin();
+  const { updateCustomer, recordInstallmentPayment, updateInstallmentDueDate, updateOrderDetails, reversePayment, importCustomers, addCustomer, deleteCustomer, restoreCustomerFromTrash, permanentlyDeleteCustomerFromTrash, updateOrderStatus, generateCustomerCodes } = useAdmin();
   const { customers, customerOrders, customerFinancials, deletedCustomers } = useAdminData();
   const { user, users } = useAuth();
   const { settings } = useSettings();
@@ -116,6 +104,7 @@ export default function CustomersAdminPage() {
   const [imageToView, setImageToView] = useState<string | null>(null);
   const [isEditDialogOpen, setIsEditDialogOpen] = useState(false);
   const [isAddCustomerDialogOpen, setIsAddCustomerDialogOpen] = useState(false);
+  const [newCustomerSellerId, setNewCustomerSellerId] = useState<string>('');
   const [editedInfo, setEditedInfo] = useState<Partial<CustomerInfo>>({});
   const [openDueDatePopover, setOpenDueDatePopover] = useState<string | null>(null);
   const [dragActive, setDragActive] = useState(false);
@@ -125,6 +114,7 @@ export default function CustomersAdminPage() {
   const [expandedHistory, setExpandedHistory] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState('active');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const lastAutofilledZipRef = useRef<string | null>(null);
   const [isGeneratingCustomerCodes, setIsGeneratingCustomerCodes] = useState(false);
 
   const [commentDialog, setCommentDialog] = useState<{
@@ -135,6 +125,12 @@ export default function CustomersAdminPage() {
     onSave?: (comment: string) => Promise<void>;
   }>({ open: false });
   
+  useEffect(() => {
+    if (!newCustomerSellerId && user?.id) {
+      setNewCustomerSellerId(user.id);
+    }
+  }, [newCustomerSellerId, user?.id]);
+
   // Effect to handle selecting a customer from URL query parameter
   useEffect(() => {
     const cpfFromQuery = searchParams.get('cpf');
@@ -375,7 +371,47 @@ export default function CustomersAdminPage() {
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => {
     const { name, value } = e.target;
     if (name.startsWith('phone')) {
-        setEditedInfo(prev => ({ ...prev, [name]: formatPhone(value) }));
+        setEditedInfo(prev => ({ ...prev, [name]: maskPhone(value) }));
+    } else if (name === 'cpf') {
+        setEditedInfo(prev => ({ ...prev, [name]: maskCpf(value) }));
+    } else if (name === 'zip') {
+        const masked = maskZip(value);
+        const zipDigits = onlyDigits(masked);
+
+        setEditedInfo(prev => ({ ...prev, [name]: masked }));
+
+        if (zipDigits.length === 8 && lastAutofilledZipRef.current !== zipDigits) {
+          lastAutofilledZipRef.current = zipDigits;
+          void (async () => {
+            try {
+              const response = await fetch(`https://viacep.com.br/ws/${zipDigits}/json/`);
+              if (!response.ok) throw new Error('Falha ao buscar CEP.');
+              const data = await response.json();
+
+              if (data.erro) {
+                lastAutofilledZipRef.current = null;
+                toast({ title: "CEP não encontrado", description: "Verifique o CEP e tente novamente.", variant: "destructive" });
+                return;
+              }
+
+              setEditedInfo(prev => {
+                const currentZipDigits = onlyDigits(String(prev.zip || ''));
+                if (currentZipDigits !== zipDigits) return prev;
+
+                return {
+                  ...prev,
+                  address: prev.address ? prev.address : (data.logradouro || ''),
+                  neighborhood: prev.neighborhood ? prev.neighborhood : (data.bairro || ''),
+                  city: prev.city ? prev.city : (data.localidade || ''),
+                  state: prev.state ? prev.state : (data.uf || ''),
+                };
+              });
+            } catch {
+              lastAutofilledZipRef.current = null;
+              toast({ title: "Erro de Rede", description: "Não foi possível buscar o CEP.", variant: "destructive" });
+            }
+          })();
+        }
     } else {
         setEditedInfo(prev => ({ ...prev, [name]: value }));
     }
@@ -451,8 +487,9 @@ export default function CustomersAdminPage() {
         return;
     }
     
-    const customerSellerId = customerData.sellerId ?? user.id;
-    const customerSellerName = customerData.sellerName ?? user.name;
+    const selectedSeller = users.find((u) => u.id === newCustomerSellerId) || user;
+    const customerSellerId = customerData.sellerId ?? selectedSeller.id;
+    const customerSellerName = customerData.sellerName ?? selectedSeller.name;
     await addCustomer({ ...customerData, sellerId: customerSellerId, sellerName: customerSellerName }, logAction, user);
     setIsAddCustomerDialogOpen(false);
   };
@@ -500,6 +537,11 @@ Não esqueça de enviar o comprovante!`;
     });
     toast({ title: "Cliente Restaurado!", description: `O cliente ${customer.name} e seus pedidos foram restaurados.`});
   };
+  
+  const handlePermanentDeleteCustomerFromTrash = (customer: CustomerInfo) => {
+    if (!user) return;
+    permanentlyDeleteCustomerFromTrash(customer, logAction, user);
+  };
 
   const canDeleteCustomer = user?.role === 'admin' || user?.role === 'gerente';
   const canAccessTrash = user?.role === 'admin' || user?.role === 'gerente';
@@ -538,7 +580,14 @@ Não esqueça de enviar o comprovante!`;
                             Clientes
                         </CardTitle>
                         <div className="flex gap-2">
-                            <Button variant="outline" size="sm" onClick={() => setIsAddCustomerDialogOpen(true)}>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                    if (user?.id) setNewCustomerSellerId(user.id);
+                                    setIsAddCustomerDialogOpen(true);
+                                }}
+                            >
                                 <UserPlus className="h-4 w-4 mr-2" />
                                 Cadastrar
                             </Button>
@@ -665,9 +714,35 @@ Não esqueça de enviar o comprovante!`;
                                                 </p>
                                             </div>
                                         </div>
-                                        <Button variant="ghost" size="sm" onClick={() => handleRestoreCustomer(customer)}>
-                                            <History className="mr-2 h-4 w-4" /> Restaurar
-                                        </Button>
+                                        <div className="flex items-center gap-1">
+                                            <Button variant="ghost" size="sm" onClick={() => handleRestoreCustomer(customer)}>
+                                                <History className="mr-2 h-4 w-4" /> Restaurar
+                                            </Button>
+                                            <AlertDialog>
+                                                <AlertDialogTrigger asChild>
+                                                    <Button variant="ghost" size="sm" className="text-destructive hover:text-destructive">
+                                                        <Trash2 className="mr-2 h-4 w-4" /> Excluir
+                                                    </Button>
+                                                </AlertDialogTrigger>
+                                                <AlertDialogContent>
+                                                    <AlertDialogHeader>
+                                                        <AlertDialogTitle>Excluir contato da lixeira?</AlertDialogTitle>
+                                                        <AlertDialogDescription>
+                                                            Essa ação remove o cliente da lixeira e não pode ser desfeita.
+                                                        </AlertDialogDescription>
+                                                    </AlertDialogHeader>
+                                                    <AlertDialogFooter>
+                                                        <AlertDialogCancel>Cancelar</AlertDialogCancel>
+                                                        <AlertDialogAction
+                                                            className="bg-destructive text-destructive-foreground hover:bg-destructive/90"
+                                                            onClick={() => handlePermanentDeleteCustomerFromTrash(customer)}
+                                                        >
+                                                            Excluir
+                                                        </AlertDialogAction>
+                                                    </AlertDialogFooter>
+                                                </AlertDialogContent>
+                                            </AlertDialog>
+                                        </div>
                                     </div>
                                 ))}
                                 </div>
@@ -1164,21 +1239,21 @@ Não esqueça de enviar o comprovante!`;
                         </div>
                         <div>
                             <Label htmlFor="cpf">CPF</Label>
-                            <Input id="cpf" name="cpf" value={editedInfo.cpf || ''} onChange={handleInputChange} />
+                            <Input id="cpf" name="cpf" value={editedInfo.cpf || ''} onChange={handleInputChange} inputMode="numeric" maxLength={14} />
                         </div>
                     </div>
                     <div className="grid md:grid-cols-2 gap-4">
                         <div>
                             <Label htmlFor="phone">Telefone (WhatsApp)</Label>
-                            <Input id="phone" name="phone" value={editedInfo.phone || ''} onChange={handleInputChange} maxLength={15} />
+                            <Input id="phone" name="phone" value={editedInfo.phone || ''} onChange={handleInputChange} inputMode="tel" maxLength={15} />
                         </div>
                         <div>
                             <Label htmlFor="phone2">Telefone 2</Label>
-                            <Input id="phone2" name="phone2" value={editedInfo.phone2 || ''} onChange={handleInputChange} maxLength={15} />
+                            <Input id="phone2" name="phone2" value={editedInfo.phone2 || ''} onChange={handleInputChange} inputMode="tel" maxLength={15} />
                         </div>
                          <div>
                             <Label htmlFor="phone3">Telefone 3</Label>
-                            <Input id="phone3" name="phone3" value={editedInfo.phone3 || ''} onChange={handleInputChange} maxLength={15} />
+                            <Input id="phone3" name="phone3" value={editedInfo.phone3 || ''} onChange={handleInputChange} inputMode="tel" maxLength={15} />
                         </div>
                         <div>
                             <Label htmlFor="email">Email</Label>
@@ -1188,7 +1263,7 @@ Não esqueça de enviar o comprovante!`;
                     <div className="grid md:grid-cols-6 gap-4">
                          <div className="md:col-span-2">
                             <Label htmlFor="zip">CEP</Label>
-                            <Input id="zip" name="zip" value={editedInfo.zip || ''} onChange={handleInputChange} />
+                            <Input id="zip" name="zip" value={editedInfo.zip || ''} onChange={handleInputChange} placeholder="00000-000" inputMode="numeric" maxLength={9} />
                         </div>
                         <div className="md:col-span-4">
                              <Label htmlFor="address">Endereço</Label>
@@ -1276,6 +1351,21 @@ Não esqueça de enviar o comprovante!`;
                         Preencha as informações abaixo para adicionar um novo cliente ao sistema.
                     </DialogDescription>
                 </DialogHeader>
+                <div className="grid gap-2">
+                    <Label>Vendedor Responsável</Label>
+                    <Select value={newCustomerSellerId} onValueChange={setNewCustomerSellerId}>
+                        <SelectTrigger>
+                            <SelectValue placeholder="Selecione o vendedor" />
+                        </SelectTrigger>
+                        <SelectContent>
+                            {sellers.map((s) => (
+                                <SelectItem key={s.id} value={s.id}>
+                                    {s.name}
+                                </SelectItem>
+                            ))}
+                        </SelectContent>
+                    </Select>
+                </div>
                 <CustomerForm onSave={handleAddCustomer} onCancel={() => setIsAddCustomerDialogOpen(false)} />
             </DialogContent>
         </Dialog>

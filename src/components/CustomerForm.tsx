@@ -2,6 +2,7 @@
 
 'use client';
 
+import { useRef } from 'react';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import * as z from 'zod';
@@ -12,6 +13,7 @@ import { useToast } from '@/hooks/use-toast';
 import type { CustomerInfo } from '@/lib/types';
 import { Save } from 'lucide-react';
 import { Textarea } from './ui/textarea';
+import { maskCpf, maskPhone, maskZip, onlyDigits } from '@/lib/utils';
 
 function isValidCPF(cpf: string) {
     if (typeof cpf !== 'string') return false;
@@ -25,7 +27,10 @@ function isValidCPF(cpf: string) {
 const customerSchema = z.object({
   name: z.string().min(3, 'Nome completo é obrigatório.'),
   cpf: z.string().min(1, 'CPF é obrigatório.').refine((val) => isValidCPF(val), { message: 'CPF inválido.' }),
-  phone: z.string().min(10, 'O telefone principal (WhatsApp) é obrigatório.'),
+  phone: z.string().refine((val) => {
+    const len = onlyDigits(val).length;
+    return len >= 10 && len <= 11;
+  }, 'O telefone principal (WhatsApp) é obrigatório.'),
   phone2: z.string().optional(),
   phone3: z.string().optional(),
   email: z.string().email('E-mail inválido.').optional().or(z.literal('')),
@@ -48,20 +53,9 @@ interface CustomerFormProps {
   customerToEdit?: CustomerInfo | null;
 }
 
-const formatPhone = (value: string) => {
-    if (!value) return '';
-    const digitsOnly = value.replace(/\D/g, '');
-    if (digitsOnly.length <= 2) {
-      return `(${digitsOnly}`;
-    }
-    if (digitsOnly.length <= 7) {
-      return `(${digitsOnly.slice(0, 2)}) ${digitsOnly.slice(2)}`;
-    }
-    return `(${digitsOnly.slice(0, 2)}) ${digitsOnly.slice(2, 7)}-${digitsOnly.slice(7, 11)}`;
-};
-
 export default function CustomerForm({ onSave, onCancel, customerToEdit }: CustomerFormProps) {
   const { toast } = useToast();
+  const lastAutofilledZipRef = useRef<string | null>(null);
   
   const form = useForm<z.infer<typeof customerSchema>>({
     resolver: zodResolver(customerSchema),
@@ -83,29 +77,44 @@ export default function CustomerForm({ onSave, onCancel, customerToEdit }: Custo
     },
   });
   
-  const handleZipBlur = async (e: React.FocusEvent<HTMLInputElement>) => {
-    const zip = e.target.value.replace(/\D/g, '');
+  const handleZipAutofill = async (zipDigits: string) => {
+    if (zipDigits.length !== 8) return;
+    if (lastAutofilledZipRef.current === zipDigits) return;
 
-    if (zip.length !== 8) return;
+    lastAutofilledZipRef.current = zipDigits;
 
     try {
-      const response = await fetch(`https://viacep.com.br/ws/${zip}/json/`);
+      const response = await fetch(`https://viacep.com.br/ws/${zipDigits}/json/`);
       if (!response.ok) throw new Error('Falha ao buscar CEP.');
       const data = await response.json();
 
       if (data.erro) {
+        lastAutofilledZipRef.current = null;
         toast({ title: "CEP não encontrado", description: "Verifique o CEP e tente novamente.", variant: "destructive" });
         return;
       }
 
-      form.setValue('address', data.logradouro || '');
-      form.setValue('neighborhood', data.bairro || '');
-      form.setValue('city', data.localidade || '');
-      form.setValue('state', data.uf || '');
-      
+      const currentAddress = form.getValues('address');
+      const currentNeighborhood = form.getValues('neighborhood');
+      const currentCity = form.getValues('city');
+      const currentState = form.getValues('state');
+
+      if (!currentAddress) {
+        form.setValue('address', data.logradouro || '', { shouldValidate: true, shouldDirty: true, shouldTouch: true });
+      }
+      if (!currentNeighborhood) {
+        form.setValue('neighborhood', data.bairro || '', { shouldValidate: true, shouldDirty: true, shouldTouch: true });
+      }
+      if (!currentCity) {
+        form.setValue('city', data.localidade || '', { shouldValidate: true, shouldDirty: true, shouldTouch: true });
+      }
+      if (!currentState) {
+        form.setValue('state', data.uf || '', { shouldValidate: true, shouldDirty: true, shouldTouch: true });
+      }
+
       toast({ title: "Endereço Encontrado!", description: "Seu endereço foi preenchido automaticamente." });
-    } catch (error) {
-      console.error("Erro ao buscar CEP:", error);
+    } catch {
+      lastAutofilledZipRef.current = null;
       toast({ title: "Erro de Rede", description: "Não foi possível buscar o CEP.", variant: "destructive" });
     }
   };
@@ -118,16 +127,16 @@ export default function CustomerForm({ onSave, onCancel, customerToEdit }: Custo
     <Form {...form}>
       <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6 py-4">
         <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-            <FormField control={form.control} name="cpf" render={({ field }) => ( <FormItem><FormLabel>CPF</FormLabel><FormControl><Input placeholder="000.000.000-00" {...field} /></FormControl><FormMessage /></FormItem> )} />
+            <FormField control={form.control} name="cpf" render={({ field }) => ( <FormItem><FormLabel>CPF</FormLabel><FormControl><Input placeholder="000.000.000-00" {...field} onChange={(e) => field.onChange(maskCpf(e.target.value))} inputMode="numeric" maxLength={14} /></FormControl><FormMessage /></FormItem> )} />
             <FormField control={form.control} name="name" render={({ field }) => ( <FormItem><FormLabel>Nome Completo</FormLabel><FormControl><Input {...field} /></FormControl><FormMessage /></FormItem> )} />
-            <FormField control={form.control} name="phone" render={({ field }) => ( <FormItem><FormLabel>Telefone (WhatsApp)</FormLabel><FormControl><Input placeholder="(99) 99999-9999" {...field} onChange={(e) => field.onChange(formatPhone(e.target.value))} maxLength={15} /></FormControl><FormMessage /></FormItem> )} />
-            <FormField control={form.control} name="phone2" render={({ field }) => ( <FormItem><FormLabel>Telefone 2 (Opcional)</FormLabel><FormControl><Input placeholder="(99) 99999-9999" {...field} onChange={(e) => field.onChange(formatPhone(e.target.value))} maxLength={15} /></FormControl><FormMessage /></FormItem> )} />
-            <FormField control={form.control} name="phone3" render={({ field }) => ( <FormItem><FormLabel>Telefone 3 (Opcional)</FormLabel><FormControl><Input placeholder="(99) 99999-9999" {...field} onChange={(e) => field.onChange(formatPhone(e.target.value))} maxLength={15} /></FormControl><FormMessage /></FormItem> )} />
+            <FormField control={form.control} name="phone" render={({ field }) => ( <FormItem><FormLabel>Telefone (WhatsApp)</FormLabel><FormControl><Input placeholder="(99) 99999-9999" {...field} onChange={(e) => field.onChange(maskPhone(e.target.value))} inputMode="tel" maxLength={15} /></FormControl><FormMessage /></FormItem> )} />
+            <FormField control={form.control} name="phone2" render={({ field }) => ( <FormItem><FormLabel>Telefone 2 (Opcional)</FormLabel><FormControl><Input placeholder="(99) 99999-9999" {...field} onChange={(e) => field.onChange(maskPhone(e.target.value))} inputMode="tel" maxLength={15} /></FormControl><FormMessage /></FormItem> )} />
+            <FormField control={form.control} name="phone3" render={({ field }) => ( <FormItem><FormLabel>Telefone 3 (Opcional)</FormLabel><FormControl><Input placeholder="(99) 99999-9999" {...field} onChange={(e) => field.onChange(maskPhone(e.target.value))} inputMode="tel" maxLength={15} /></FormControl><FormMessage /></FormItem> )} />
             <FormField control={form.control} name="email" render={({ field }) => ( <FormItem><FormLabel>Email (Opcional)</FormLabel><FormControl><Input placeholder="seu@email.com" {...field} /></FormControl><FormMessage /></FormItem> )} />
         </div>
         <h4 className="text-lg font-semibold pt-4 border-t">Endereço</h4>
         <div className="grid grid-cols-1 md:grid-cols-6 gap-4">
-            <FormField control={form.control} name="zip" render={({ field }) => ( <FormItem className="md:col-span-2"><FormLabel>CEP</FormLabel><FormControl><Input placeholder="00000-000" {...field} onBlur={handleZipBlur} /></FormControl><FormMessage /></FormItem> )} />
+            <FormField control={form.control} name="zip" render={({ field }) => ( <FormItem className="md:col-span-2"><FormLabel>CEP</FormLabel><FormControl><Input placeholder="00000-000" {...field} inputMode="numeric" maxLength={9} onChange={(e) => { const masked = maskZip(e.target.value); field.onChange(masked); const zipDigits = onlyDigits(masked); if (zipDigits.length === 8) void handleZipAutofill(zipDigits); }} /></FormControl><FormMessage /></FormItem> )} />
             <FormField control={form.control} name="address" render={({ field }) => ( <FormItem className="md:col-span-4"><FormLabel>Endereço</FormLabel><FormControl><Input placeholder="Rua, Av." {...field} /></FormControl><FormMessage /></FormItem> )} />
             <FormField control={form.control} name="number" render={({ field }) => ( <FormItem className="md:col-span-2"><FormLabel>Número</FormLabel><FormControl><Input placeholder="123" {...field} /></FormControl><FormMessage /></FormItem> )} />
             <FormField control={form.control} name="complement" render={({ field }) => ( <FormItem className="md:col-span-4"><FormLabel>Complemento (opcional)</FormLabel><FormControl><Input placeholder="Apto, bloco, casa, etc." {...field} /></FormControl><FormMessage /></FormItem> )} />

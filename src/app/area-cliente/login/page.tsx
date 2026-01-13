@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { User, Shield } from 'lucide-react';
 import Link from 'next/link';
 import { useData } from '@/context/DataContext';
+import { maskCpf } from '@/lib/utils';
 
 export default function CustomerLoginPage() {
   const { login, isLoading: authIsLoading } = useCustomerAuth();
@@ -39,9 +40,11 @@ export default function CustomerLoginPage() {
                 <Input
                     id="cpf"
                     type="text"
-                    placeholder="Apenas números"
+                    placeholder="000.000.000-00"
                     value={cpf}
-                    onChange={(e) => setCpf(e.target.value)}
+                    onChange={(e) => setCpf(maskCpf(e.target.value))}
+                    inputMode="numeric"
+                    maxLength={14}
                     required
                 />
             </div>

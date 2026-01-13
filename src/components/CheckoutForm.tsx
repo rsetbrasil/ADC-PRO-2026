@@ -31,6 +31,7 @@ import { useAudit } from '@/context/AuditContext';
 import { useData } from '@/context/DataContext';
 import { Textarea } from './ui/textarea';
 import Link from 'next/link';
+import { maskCpf, maskPhone, onlyDigits } from '@/lib/utils';
 
 function isValidCPF(cpf: string) {
     if (typeof cpf !== 'string') return false;
@@ -47,7 +48,10 @@ const checkoutSchema = z.object({
   cpf: z.string().refine(isValidCPF, {
     message: 'CPF inválido.',
   }),
-  phone: z.string().min(10, 'O telefone principal (WhatsApp) é obrigatório.'),
+  phone: z.string().refine((val) => {
+    const len = onlyDigits(val).length;
+    return len >= 10 && len <= 11;
+  }, 'O telefone principal (WhatsApp) é obrigatório.'),
   phone2: z.string().optional(),
   phone3: z.string().optional(),
   email: z.string().email('E-mail inválido.').optional().or(z.literal('')),
@@ -69,18 +73,6 @@ const checkoutSchema = z.object({
 
 const formatCurrency = (value: number) => {
   return new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' }).format(value);
-};
-
-const formatPhone = (value: string) => {
-    if (!value) return '';
-    const digitsOnly = value.replace(/\D/g, '');
-    if (digitsOnly.length <= 2) {
-      return `(${digitsOnly}`;
-    }
-    if (digitsOnly.length <= 7) {
-      return `(${digitsOnly.slice(0, 2)}) ${digitsOnly.slice(2)}`;
-    }
-    return `(${digitsOnly.slice(0, 2)}) ${digitsOnly.slice(2, 7)}-${digitsOnly.slice(7, 11)}`;
 };
 
 export default function CheckoutForm() {
@@ -125,12 +117,12 @@ export default function CheckoutForm() {
   }, [cartItems, router]);
   
   const handleCpfChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
-    const value = e.target.value;
-    form.setValue('cpf', value); // Update form state immediately
+    const maskedValue = maskCpf(e.target.value);
+    form.setValue('cpf', maskedValue);
 
-    const cpf = value?.replace(/\D/g, '');
-    if (cpf && cpf.length === 11 && isValidCPF(value)) {
-        const existingCustomer = allKnownCustomers.find(c => c.cpf?.replace(/\D/g, '') === cpf);
+    const cpfDigits = onlyDigits(maskedValue);
+    if (cpfDigits.length === 11 && isValidCPF(maskedValue)) {
+        const existingCustomer = allKnownCustomers.find(c => onlyDigits(c.cpf || '') === cpfDigits);
         if (existingCustomer) {
             form.reset({
                 ...existingCustomer,
@@ -393,6 +385,8 @@ export default function CheckoutForm() {
                                         placeholder="000.000.000-00" 
                                         {...field} 
                                         onChange={handleCpfChange}
+                                        inputMode="numeric"
+                                        maxLength={14}
                                     />
                                 </FormControl>
                                 <FormMessage />
@@ -422,9 +416,9 @@ export default function CheckoutForm() {
                             </div>
                         </div>
                     )}
-                    <FormField control={form.control} name="phone" render={({ field }) => ( <FormItem><FormLabel>Telefone (WhatsApp)</FormLabel><FormControl><Input placeholder="(99) 99999-9999" {...field} onChange={e => field.onChange(formatPhone(e.target.value))} maxLength={15} /></FormControl><FormMessage /></FormItem> )} />
-                    <FormField control={form.control} name="phone2" render={({ field }) => ( <FormItem><FormLabel>Telefone 2 (Opcional)</FormLabel><FormControl><Input placeholder="(99) 99999-9999" {...field} onChange={e => field.onChange(formatPhone(e.target.value))} maxLength={15} /></FormControl><FormMessage /></FormItem> )} />
-                    <FormField control={form.control} name="phone3" render={({ field }) => ( <FormItem><FormLabel>Telefone 3 (Opcional)</FormLabel><FormControl><Input placeholder="(99) 99999-9999" {...field} onChange={e => field.onChange(formatPhone(e.target.value))} maxLength={15} /></FormControl><FormMessage /></FormItem> )} />
+                    <FormField control={form.control} name="phone" render={({ field }) => ( <FormItem><FormLabel>Telefone (WhatsApp)</FormLabel><FormControl><Input placeholder="(99) 99999-9999" {...field} onChange={e => field.onChange(maskPhone(e.target.value))} inputMode="tel" maxLength={15} /></FormControl><FormMessage /></FormItem> )} />
+                    <FormField control={form.control} name="phone2" render={({ field }) => ( <FormItem><FormLabel>Telefone 2 (Opcional)</FormLabel><FormControl><Input placeholder="(99) 99999-9999" {...field} onChange={e => field.onChange(maskPhone(e.target.value))} inputMode="tel" maxLength={15} /></FormControl><FormMessage /></FormItem> )} />
+                    <FormField control={form.control} name="phone3" render={({ field }) => ( <FormItem><FormLabel>Telefone 3 (Opcional)</FormLabel><FormControl><Input placeholder="(99) 99999-9999" {...field} onChange={e => field.onChange(maskPhone(e.target.value))} inputMode="tel" maxLength={15} /></FormControl><FormMessage /></FormItem> )} />
                     <FormField control={form.control} name="email" render={({ field }) => ( <FormItem className="md:col-span-2"><FormLabel>Email (Opcional)</FormLabel><FormControl><Input placeholder="seu@email.com" {...field} /></FormControl><FormMessage /></FormItem> )} />
                 </div>
                  {isNewCustomer && (

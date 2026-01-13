@@ -32,3 +32,9 @@ export function maskPhone(value: string) {
   if (rest.length <= 8) return `(${area}) ${rest.slice(0, 4)}-${rest.slice(4)}`
   return `(${area}) ${rest.slice(0, 5)}-${rest.slice(5)}`
 }
+
+export function maskZip(value: string) {
+  const digits = onlyDigits(value).slice(0, 8)
+  if (digits.length <= 5) return digits
+  return `${digits.slice(0, 5)}-${digits.slice(5)}`
+}

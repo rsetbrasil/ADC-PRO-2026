@@ -33,13 +33,17 @@ import { useData } from '@/context/DataContext';
 import { getClientFirebase } from '@/lib/firebase-client';
 import { collection, deleteDoc, doc, getDoc, getDocs, limit, onSnapshot, orderBy, query, setDoc, writeBatch } from 'firebase/firestore';
 import { deleteObject, getDownloadURL, getStorage, ref as storageRef, uploadString } from 'firebase/storage';
+import { maskPhone, onlyDigits } from '@/lib/utils';
 
 const settingsSchema = z.object({
   storeName: z.string().min(3, 'O nome da loja é obrigatório.'),
   storeAddress: z.string().min(10, 'O endereço da loja é obrigatório.'),
   storeCity: z.string().min(3, 'A cidade da loja é obrigatória.'),
   pixKey: z.string().min(1, 'A chave PIX é obrigatória.'),
-  storePhone: z.string().min(10, 'O telefone da loja é obrigatório.'),
+  storePhone: z.string().refine((val) => {
+    const len = onlyDigits(val).length;
+    return len >= 10 && len <= 11;
+  }, 'O telefone da loja é obrigatório.'),
   logoUrl: z.string().optional(),
   accessControlEnabled: z.boolean().optional(),
   commercialHourStart: z.string().optional(),
@@ -743,7 +747,13 @@ export default function ConfiguracaoPage() {
                             Telefone da Loja (WhatsApp)
                         </FormLabel>
                         <FormControl>
-                          <Input placeholder="5511999999999" {...field} />
+                          <Input
+                            placeholder="(99) 99999-9999"
+                            {...field}
+                            onChange={(e) => field.onChange(maskPhone(e.target.value))}
+                            inputMode="tel"
+                            maxLength={15}
+                          />
                         </FormControl>
                         <FormMessage />
                       </FormItem>
