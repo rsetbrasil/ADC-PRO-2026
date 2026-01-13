@@ -778,7 +778,14 @@ Não esqueça de enviar o comprovante!`;
                       )}
                   </TabsContent>
                   <TabsContent value="deleted">
-                      <div className="mb-4">
+                      <div className="flex flex-wrap gap-4 mb-6 p-4 border rounded-lg bg-muted/50">
+                          <div className="flex-grow min-w-[200px]">
+                              <Input
+                                  placeholder="Buscar na lixeira por ID ou cliente..."
+                                  value={filters.search}
+                                  onChange={(e) => handleFilterChange('search', e.target.value)}
+                              />
+                          </div>
                           <AlertDialog>
                               <AlertDialogTrigger asChild>
                                   <Button variant="destructive" disabled={deletedOrders.length === 0}>
