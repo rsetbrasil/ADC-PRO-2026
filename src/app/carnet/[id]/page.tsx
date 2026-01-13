@@ -116,14 +116,14 @@ const CarnetContent = ({ order, settings, pixPayload, productCodeById }: { order
 
         <div className="carnet-customer-grid grid grid-cols-1 sm:grid-cols-[1fr_150px] print-default:sm:grid-cols-[1fr_130px] gap-x-1 gap-y-0 py-0 print:py-0 border-b">
             <div className="min-w-0">
-                <div className="grid grid-cols-1 sm:grid-cols-[1.55fr_1fr] gap-x-2 gap-y-0 leading-[1.25]">
+                <div className="grid grid-cols-1 sm:grid-cols-[1.55fr_1fr] print-default:sm:grid-cols-[1.9fr_0.85fr] gap-x-2 print-default:gap-x-1 gap-y-0 leading-[1.25]">
                     <div className="space-y-0.5">
                         <p className="carnet-label text-[9px] text-muted-foreground leading-none">CLIENTE</p>
                         <p className="carnet-customer-value font-semibold">{customerNameWithCode}</p>
                         <p className="carnet-label text-[9px] text-muted-foreground leading-none">ENDEREÇO</p>
                         <p className="carnet-customer-value font-semibold whitespace-pre-line">{customerAddressText}</p>
                     </div>
-                    <div className="space-y-0.5">
+                    <div className="space-y-0.5 print-default:sm:w-fit print-default:sm:justify-self-end">
                         <p className="carnet-label text-[9px] text-muted-foreground leading-none">CPF</p>
                         <p className="carnet-customer-value font-semibold">
                             {order.customer.cpf || ''}

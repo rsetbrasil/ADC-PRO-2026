@@ -13,7 +13,7 @@ import { FirestorePermissionError } from '@/firebase/errors';
 import type { StoreSettings } from '@/lib/types';
 
 const initialSettings: StoreSettings = {
-    storeName: '',
+    storeName: 'ADC Móveis',
     storeCity: '',
     storeAddress: '',
     pixKey: '',
@@ -22,6 +22,52 @@ const initialSettings: StoreSettings = {
     accessControlEnabled: false,
     commercialHourStart: '08:00',
     commercialHourEnd: '18:00',
+};
+
+const SETTINGS_CACHE_KEY = 'adcpro/storeSettingsCache/v1';
+
+const mergeWithDefaults = (maybeSettings: Partial<StoreSettings> | null | undefined): StoreSettings => {
+    return {
+        ...initialSettings,
+        ...(maybeSettings || {}),
+    };
+};
+
+const isSettingsEffectivelyEmpty = (settings: StoreSettings) => {
+    return (
+        !settings.storeName?.trim() &&
+        !settings.storeAddress?.trim() &&
+        !settings.storeCity?.trim() &&
+        !settings.pixKey?.trim() &&
+        !settings.storePhone?.trim() &&
+        !settings.logoUrl?.trim()
+    );
+};
+
+const readCachedSettings = (): StoreSettings | null => {
+    if (typeof window === 'undefined') return null;
+    try {
+        const raw = window.localStorage.getItem(SETTINGS_CACHE_KEY);
+        if (!raw) return null;
+        const parsed = JSON.parse(raw) as StoreSettings;
+        return mergeWithDefaults(parsed);
+    } catch {
+        return null;
+    }
+};
+
+const writeCachedSettings = (settings: StoreSettings) => {
+    if (typeof window === 'undefined') return;
+    try {
+        window.localStorage.setItem(SETTINGS_CACHE_KEY, JSON.stringify(settings));
+    } catch {}
+};
+
+const clearCachedSettings = () => {
+    if (typeof window === 'undefined') return;
+    try {
+        window.localStorage.removeItem(SETTINGS_CACHE_KEY);
+    } catch {}
 };
 
 interface SettingsContextType {
@@ -35,7 +81,7 @@ interface SettingsContextType {
 const SettingsContext = createContext<SettingsContextType | undefined>(undefined);
 
 export const SettingsProvider = ({ children }: { children: ReactNode }) => {
-    const [settings, setSettings] = useState<StoreSettings>(initialSettings);
+    const [settings, setSettings] = useState<StoreSettings>(() => readCachedSettings() || initialSettings);
     const [isLoading, setIsLoading] = useState(true);
     const { toast } = useToast();
     const { logAction } = useAudit();
@@ -46,12 +92,32 @@ export const SettingsProvider = ({ children }: { children: ReactNode }) => {
         const { db } = getClientFirebase();
         const settingsRef = doc(db, 'config', 'storeSettings');
         const unsubscribe = onSnapshot(settingsRef, async (docSnap) => {
-            if (docSnap.exists()) {
-                setSettings(docSnap.data() as StoreSettings);
-            } else {
-                await setDoc(settingsRef, initialSettings);
-                setSettings(initialSettings);
+            const cached = readCachedSettings();
+
+            if (!docSnap.exists()) {
+                setSettings(cached || initialSettings);
+                setIsLoading(false);
+                return;
             }
+
+            const remote = mergeWithDefaults(docSnap.data() as Partial<StoreSettings>);
+            const remoteEmpty = isSettingsEffectivelyEmpty(remote);
+            const cachedUsable = cached && !isSettingsEffectivelyEmpty(cached);
+
+            if (remoteEmpty && cachedUsable) {
+                setSettings(cached);
+                writeCachedSettings(cached);
+                if (user?.role === 'admin') {
+                    try {
+                        await setDoc(settingsRef, cached, { merge: true });
+                    } catch {}
+                }
+                setIsLoading(false);
+                return;
+            }
+
+            setSettings(remote);
+            writeCachedSettings(remote);
             setIsLoading(false);
         }, (error) => {
             console.error("Failed to load settings from Firestore:", error);
@@ -59,12 +125,12 @@ export const SettingsProvider = ({ children }: { children: ReactNode }) => {
                 path: 'config/storeSettings',
                 operation: 'get',
             }));
-            setSettings(initialSettings);
+            setSettings(readCachedSettings() || initialSettings);
             setIsLoading(false);
         });
 
         return () => unsubscribe();
-    }, [toast]);
+    }, [user?.role]);
 
     const updateSettings = async (newSettings: Partial<StoreSettings>) => {
         try {
@@ -94,6 +160,7 @@ export const SettingsProvider = ({ children }: { children: ReactNode }) => {
     };
 
     const resetSettings = async () => {
+        clearCachedSettings();
         await updateSettings(initialSettings);
         logAction('Reset de Configurações', `Configurações da loja foram restauradas para o padrão.`, user);
     };
