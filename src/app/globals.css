@@ -121,8 +121,8 @@
   }
 
   body.print-layout-default .carnet-products-value {
-    font-size: 15px !important;
-    line-height: 1.25 !important;
+    font-size: 11px !important;
+    line-height: 1.2 !important;
   }
 
   body.print-layout-a4 .carnet-products-value {

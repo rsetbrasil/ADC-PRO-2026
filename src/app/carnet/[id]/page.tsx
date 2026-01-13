@@ -107,7 +107,7 @@ const CarnetContent = ({ order, settings, pixPayload, productCodeById }: { order
                     <p className="font-semibold print:text-[10px]">
                         Pedido Nº <span className="font-mono text-lg print:text-base">{order.id}</span>
                     </p>
-                    <p className="text-xs print:text-[10px] text-muted-foreground">
+                    <p className="text-sm print:text-[11px] text-black">
                         Data da compra: {format(new Date(order.date), 'dd/MM/yyyy', { locale: ptBR })}
                     </p>
                 </div>
