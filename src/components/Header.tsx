@@ -8,12 +8,14 @@ import { useCart } from '@/context/CartContext';
 import { useCustomerAuth } from '@/context/CustomerAuthContext';
 import { useAuth } from '@/context/AuthContext';
 import { Button, buttonVariants } from './ui/button';
-import { ShoppingBag, User, Search, Settings } from 'lucide-react';
+import { ShoppingBag, User, Search, Settings, Sun, Moon } from 'lucide-react';
 import { CartSheet } from './CartSheet';
 import { cn } from '@/lib/utils';
 import { useEffect, useState } from 'react';
 import { Input } from './ui/input';
 import { usePathname, useRouter } from 'next/navigation';
+import { useTheme } from 'next-themes';
+import { Switch } from './ui/switch';
 
 export default function Header() {
   const { cartCount, headerSearch, setHeaderSearch } = useCart();
@@ -22,6 +24,7 @@ export default function Header() {
   const [isClient, setIsClient] = useState(false);
   const router = useRouter();
   const pathname = usePathname();
+  const { resolvedTheme, setTheme } = useTheme();
 
   useEffect(() => {
     setIsClient(true);
@@ -35,6 +38,7 @@ export default function Header() {
   };
 
   const customerLink = isClient && customer ? "/area-cliente/minha-conta" : "/area-cliente/login";
+  const isDark = isClient && resolvedTheme === 'dark';
 
   return (
     <div className="bg-card/80 backdrop-blur-lg border-b sticky top-0 z-40">
@@ -58,6 +62,15 @@ export default function Header() {
         </div>
 
         <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 pr-1">
+              <Sun className="hidden sm:block h-4 w-4 text-muted-foreground" aria-hidden />
+              <Switch
+                checked={!!isDark}
+                onCheckedChange={(checked) => setTheme(checked ? 'dark' : 'light')}
+                aria-label="Alternar tema claro/escuro"
+              />
+              <Moon className="hidden sm:block h-4 w-4 text-muted-foreground" aria-hidden />
+            </div>
             <Link href="/admin/pedidos" className={cn(buttonVariants({ variant: "ghost", size: "icon" }))}>
                 <Settings />
                 <span className="sr-only">Painel Administrativo</span>
@@ -84,6 +97,4 @@ export default function Header() {
     </div>
   );
 }
-
-
 

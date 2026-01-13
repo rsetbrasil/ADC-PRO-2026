@@ -86,7 +86,7 @@ const CarnetContent = ({ order, settings, pixPayload, productCodeById }: { order
     ]);
 
     return (
-    <div className="carnet-content-wrapper bg-white break-inside-avoid-page print:p-0 text-sm print:text-[11px] print:leading-[1.25] flex flex-col relative">
+    <div className="carnet-content-wrapper bg-white text-black break-inside-avoid-page print:p-0 text-sm print:text-[11px] print:leading-[1.25] flex flex-col relative">
         {isOrderPaidOff && (
             <div className="absolute top-24 right-3 pointer-events-none">
                 <div className="border-[5px] border-green-700 text-green-700 rounded-md px-5 py-2 rotate-12 opacity-80">
@@ -406,7 +406,7 @@ export default function CarnetPage() {
           </div>
         </header>
         
-        <main className="w-full bg-white p-4 print:p-0 print:shadow-none print-default:grid print-default:grid-cols-2 print-default:gap-x-4 print-a4:flex print-a4:flex-col">
+        <main className="w-full bg-white text-black p-4 print:p-0 print:shadow-none print-default:grid print-default:grid-cols-2 print-default:gap-x-4 print-a4:flex print-a4:flex-col">
             <div className="print-default:border-r print-default:border-dashed print-default:border-black print-default:pr-4">
                 <CarnetContent order={order} settings={settings} pixPayload={pixPayload} productCodeById={productCodeById} />
             </div>

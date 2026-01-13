@@ -29,6 +29,7 @@ import {
 import type { AppSection } from "@/lib/types";
 import { Sheet, SheetContent, SheetTrigger } from "@/components/ui/sheet";
 import ScrollButtons from "@/components/ScrollButtons";
+import { Switch } from "@/components/ui/switch";
 
 const changePasswordSchema = z.object({
   currentPassword: z.string().min(1, 'A senha atual é obrigatória.'),
@@ -67,29 +68,29 @@ const isWithinCommercialHours = (start: string, end: string) => {
 };
 
 function ModeToggle() {
-  const { setTheme } = useTheme()
- 
+  const { resolvedTheme, setTheme } = useTheme()
+  const [mounted, setMounted] = useState(false)
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
+
+  if (!mounted) {
+    return <div className="h-6 w-11" aria-hidden />
+  }
+
+  const isDark = resolvedTheme === "dark"
+
   return (
-    <DropdownMenu>
-      <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="icon">
-          <Sun className="h-[1.2rem] w-[1.2rem] rotate-0 scale-100 transition-all dark:-rotate-90 dark:scale-0" />
-          <Moon className="absolute h-[1.2rem] w-[1.2rem] rotate-90 scale-0 transition-all dark:rotate-0 dark:scale-100" />
-          <span className="sr-only">Toggle theme</span>
-        </Button>
-      </DropdownMenuTrigger>
-      <DropdownMenuContent align="end">
-        <DropdownMenuItem onClick={() => setTheme("light")}>
-          Claro
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setTheme("dark")}>
-          Escuro
-        </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => setTheme("system")}>
-          Sistema
-        </DropdownMenuItem>
-      </DropdownMenuContent>
-    </DropdownMenu>
+    <div className="flex items-center gap-2">
+      <Sun className="h-4 w-4 text-muted-foreground" aria-hidden />
+      <Switch
+        checked={isDark}
+        onCheckedChange={(checked) => setTheme(checked ? "dark" : "light")}
+        aria-label="Alternar tema claro/escuro"
+      />
+      <Moon className="h-4 w-4 text-muted-foreground" aria-hidden />
+    </div>
   )
 }
 
