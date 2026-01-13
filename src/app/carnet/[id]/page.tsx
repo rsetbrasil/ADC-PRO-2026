@@ -48,7 +48,7 @@ const CarnetContent = ({ order, settings, pixPayload, productCodeById }: { order
     const customerNameWithCode = useMemo(() => {
         const code = (order.customer.code || '').trim();
         if (!code) return order.customer.name;
-        return `${order.customer.name} | Cód: ${code}`;
+        return `${order.customer.name} - ${code}`;
     }, [order.customer.code, order.customer.name]);
     const customerAddressText = useMemo(() => {
         const line1 = [
@@ -80,9 +80,6 @@ const CarnetContent = ({ order, settings, pixPayload, productCodeById }: { order
             .filter(Boolean);
         return phones.join(' / ');
     }, [order.customer.phone, order.customer.phone2, order.customer.phone3]);
-    const customerEmailText = useMemo(() => {
-        return (order.customer.email || '').trim();
-    }, [order.customer.email]);
 
     return (
     <div className="carnet-content-wrapper bg-white text-black break-inside-avoid-page print:p-0 text-sm print:text-[11px] print:leading-[1.25] flex flex-col relative">
@@ -93,7 +90,7 @@ const CarnetContent = ({ order, settings, pixPayload, productCodeById }: { order
                 </div>
             </div>
         )}
-        <div className="pb-1 border-b">
+        <div className="pb-0 border-b">
             <div className="flex justify-between items-start">
                 <div className="flex items-center">
                     <Logo />
@@ -107,47 +104,66 @@ const CarnetContent = ({ order, settings, pixPayload, productCodeById }: { order
                     {settings.storePhone && (
                         <p className="text-muted-foreground flex items-center gap-1 justify-end text-xs print:text-[10px]"><Phone className="h-3 w-3" /> WhatsApp: {settings.storePhone}</p>
                     )}
-                    <p className="font-semibold print:text-[10px]">Pedido Nº</p>
-                    <p className="font-mono text-lg print:text-base">{order.id}</p>
+                    <p className="font-semibold print:text-[10px]">
+                        Pedido Nº <span className="font-mono text-lg print:text-base">{order.id}</span>
+                    </p>
+                    <p className="text-xs print:text-[10px] text-muted-foreground">
+                        Data da compra: {format(new Date(order.date), 'dd/MM/yyyy', { locale: ptBR })}
+                    </p>
                 </div>
             </div>
         </div>
 
-        <div className="carnet-customer-grid grid grid-cols-1 sm:grid-cols-[1fr_1fr_0.95fr] gap-x-2 gap-y-0 py-0 print:py-0 border-b">
-            <div className="sm:col-span-1 space-y-0.5">
-                <p className="carnet-label text-[9px] text-muted-foreground">CLIENTE</p>
-                <p className="carnet-customer-value font-semibold">{customerNameWithCode}</p>
-                 <p className="carnet-label text-[9px] text-muted-foreground">ENDEREÇO</p>
-                <p className="carnet-customer-value font-semibold whitespace-pre-line">{customerAddressText}</p>
+        <div className="carnet-customer-grid grid grid-cols-1 sm:grid-cols-[1fr_150px] print-default:sm:grid-cols-[1fr_130px] gap-x-1 gap-y-0 py-0 print:py-0 border-b">
+            <div className="min-w-0">
+                <div className="grid grid-cols-1 sm:grid-cols-[1.55fr_1fr] gap-x-2 gap-y-0 leading-[1.25]">
+                    <div className="space-y-0.5">
+                        <p className="carnet-label text-[9px] text-muted-foreground leading-none">CLIENTE</p>
+                        <p className="carnet-customer-value font-semibold">{customerNameWithCode}</p>
+                        <p className="carnet-label text-[9px] text-muted-foreground leading-none">ENDEREÇO</p>
+                        <p className="carnet-customer-value font-semibold whitespace-pre-line">{customerAddressText}</p>
+                    </div>
+                    <div className="space-y-0.5">
+                        <p className="carnet-label text-[9px] text-muted-foreground leading-none">CPF</p>
+                        <p className="carnet-customer-value font-semibold">
+                            {order.customer.cpf || ''}
+                        </p>
+                        <p className="carnet-label text-[9px] text-muted-foreground leading-none">TELEFONE(S)</p>
+                        <p className="carnet-customer-value font-semibold">{customerPhonesText}</p>
+                        <p className="carnet-label text-[9px] text-muted-foreground leading-none">VENDEDOR(A)</p>
+                        <p className="carnet-customer-value font-semibold">{order.sellerName}</p>
+                    </div>
+                </div>
+
+                <div className="mt-0.5 space-y-0.5 leading-[1.2]">
+                    <p className="carnet-label text-[9px] text-muted-foreground leading-none">PRODUTO(S)</p>
+                    <div className="carnet-products-value font-semibold text-[11px] print:text-[10px] leading-tight">
+                        {productsList.map((item) => (
+                            <div key={item.key} className="break-words">
+                                <span>
+                                    {item.code} - {item.name}
+                                </span>
+                                {item.quantity > 1 && <span> (x{item.quantity})</span>}
+                            </div>
+                        ))}
+                    </div>
+                </div>
             </div>
-             <div className="sm:col-span-1 space-y-0.5">
-                <p className="carnet-label text-[9px] text-muted-foreground">CPF</p>
-                <p className="carnet-customer-value font-semibold">
-                    {order.customer.cpf || ''}
-                </p>
-                <p className="carnet-label text-[9px] text-muted-foreground mt-0 print:mt-0">TELEFONE(S)</p>
-                <p className="carnet-customer-value font-semibold">{customerPhonesText}</p>
-                <p className="carnet-label text-[9px] text-muted-foreground mt-0 print:mt-0">E-MAIL</p>
-                <p className="carnet-customer-value font-semibold">{customerEmailText || '-'}</p>
-                <p className="carnet-label text-[9px] text-muted-foreground mt-0 print:mt-0">VENDEDOR(A)</p>
-                <p className="carnet-customer-value font-semibold">{order.sellerName}</p>
-                <p className="carnet-label text-[9px] text-muted-foreground mt-0 print:mt-0">DATA DA COMPRA</p>
-                <p className="carnet-customer-value font-semibold">{format(new Date(order.date), 'dd/MM/yyyy', { locale: ptBR })}</p>
-            </div>
-             <div className="sm:col-span-1 sm:col-start-3 sm:row-start-1 sm:row-span-3 flex items-start justify-end">
+
+            <div className="flex items-start justify-end">
                 {pixPayload && (
                     <div className="w-full flex flex-col items-end gap-1">
-                        <div className="carnet-qr w-full max-w-[180px] flex-shrink-0">
+                        <div className="carnet-qr w-full max-w-[150px] print-default:max-w-[130px] flex-shrink-0">
                             <PixQRCode payload={pixPayload} size={768} className="p-1" />
                         </div>
                         {settings.pixKey && (
-                            <div className="w-full max-w-[180px]">
-                                <p className="carnet-label text-[9px] text-muted-foreground text-center">CHAVE PIX</p>
+                            <div className="w-full max-w-[150px] print-default:max-w-[130px]">
+                                <p className="carnet-label text-[9px] text-muted-foreground text-center leading-none">CHAVE PIX</p>
                                 <div className="flex items-center justify-center gap-2">
                                     <span className="inline-flex items-center justify-center h-6 w-6 rounded-md bg-primary text-primary-foreground text-[10px] font-extrabold leading-none flex-shrink-0 print:h-5 print:w-5 print:text-[9px]">
                                         PIX
                                     </span>
-                                    <p className="carnet-pix-key font-mono break-all text-center text-[16px] leading-tight print:text-[13px]">
+                                    <p className="carnet-pix-key font-mono break-all text-center text-[15px] leading-tight print:text-[12px]">
                                         {settings.pixKey}
                                     </p>
                                 </div>
@@ -156,22 +172,9 @@ const CarnetContent = ({ order, settings, pixPayload, productCodeById }: { order
                     </div>
                 )}
             </div>
-            <div className="sm:col-span-2 sm:row-start-2 space-y-0.5">
-                <p className="carnet-label text-[9px] text-muted-foreground">PRODUTO(S)</p>
-                <div className="carnet-products-value font-semibold text-[11px] print:text-[10px] leading-tight">
-                    {productsList.map((item) => (
-                        <div key={item.key} className="break-words">
-                            <span>
-                                {item.code} - {item.name}
-                            </span>
-                            {item.quantity > 1 && <span> (x{item.quantity})</span>}
-                        </div>
-                    ))}
-                </div>
-            </div>
         </div>
         
-        <div className="flex-grow mt-0.5 print:mt-0 border rounded-md overflow-hidden flex flex-col">
+        <div className="flex-grow mt-0 print:mt-0 border rounded-md overflow-hidden flex flex-col">
             <div className="overflow-y-auto print:overflow-visible">
                 <table className="carnet-installments-table w-full table-fixed text-sm print:text-[11px]">
                     <thead className="bg-muted/50 print:bg-gray-100">
@@ -423,11 +426,11 @@ export default function CarnetPage() {
           </div>
         </header>
         
-        <main className="w-full bg-white text-black p-4 print:p-0 print:shadow-none print-default:grid print-default:grid-cols-2 print-default:gap-x-4 print-a4:flex print-a4:flex-col">
-            <div className="print-default:border-r print-default:border-dashed print-default:border-black print-default:pr-4">
+        <main className="w-full bg-white text-black p-4 print:p-0 print:shadow-none print-default:grid print-default:grid-cols-2 print-default:gap-x-2 print-a4:flex print-a4:flex-col">
+            <div className="print-default:border-r print-default:border-dashed print-default:border-black print-default:pr-2">
                 <CarnetContent order={order} settings={settings} pixPayload={pixPayload} productCodeById={productCodeById} />
             </div>
-            <div className="hidden print-default:block print-default:pl-4">
+            <div className="hidden print-default:block print-default:pl-2">
                 <CarnetContent order={order} settings={settings} pixPayload={pixPayload} productCodeById={productCodeById} />
             </div>
         </main>

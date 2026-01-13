@@ -33,7 +33,7 @@ const ReceiptContent = ({ order, installment, settings, via }: { order: Order; i
         const code = (order.customer.code || '').trim();
         const name = (order.customer.name || '').trim();
         if (!code) return name.toUpperCase();
-        return `${name} | Cód: ${code}`.toUpperCase();
+        return `${name} - ${code}`.toUpperCase();
     }, [order.customer.code, order.customer.name]);
 
     const customerAddressText = useMemo(() => {
@@ -66,9 +66,6 @@ const ReceiptContent = ({ order, installment, settings, via }: { order: Order; i
             .filter(Boolean);
         return phones.join(' / ');
     }, [order.customer.phone, order.customer.phone2, order.customer.phone3]);
-    const customerEmailText = useMemo(() => {
-        return (order.customer.email || '').trim();
-    }, [order.customer.email]);
 
     const productCodeById = useMemo(() => {
         const map = new Map<string, string>();
@@ -126,7 +123,6 @@ const ReceiptContent = ({ order, installment, settings, via }: { order: Order; i
                     <p>CLIENTE: {customerNameWithCode}</p>
                     <p>CPF: {order.customer.cpf}</p>
                     <p>TELEFONE(S): {customerPhonesText}</p>
-                    <p>E-MAIL: {customerEmailText || '-'}</p>
                     <p>ENDEREÇO: {customerAddressText}</p>
                     <p>PEDIDO: {order.id}</p>
                 </div>
