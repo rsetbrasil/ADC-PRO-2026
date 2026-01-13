@@ -60,6 +60,15 @@ const ReceiptContent = ({ order, installment, settings, via }: { order: Order; i
         order.customer.state,
         order.customer.zip,
     ]);
+    const customerPhonesText = useMemo(() => {
+        const phones = [order.customer.phone, order.customer.phone2, order.customer.phone3]
+            .map((p) => (p || '').trim())
+            .filter(Boolean);
+        return phones.join(' / ');
+    }, [order.customer.phone, order.customer.phone2, order.customer.phone3]);
+    const customerEmailText = useMemo(() => {
+        return (order.customer.email || '').trim();
+    }, [order.customer.email]);
 
     const productCodeById = useMemo(() => {
         const map = new Map<string, string>();
@@ -116,7 +125,8 @@ const ReceiptContent = ({ order, installment, settings, via }: { order: Order; i
                 <div className="space-y-1">
                     <p>CLIENTE: {customerNameWithCode}</p>
                     <p>CPF: {order.customer.cpf}</p>
-                    <p>TELEFONE: {order.customer.phone}</p>
+                    <p>TELEFONE(S): {customerPhonesText}</p>
+                    <p>E-MAIL: {customerEmailText || '-'}</p>
                     <p>ENDEREÇO: {customerAddressText}</p>
                     <p>PEDIDO: {order.id}</p>
                 </div>
@@ -243,6 +253,7 @@ export default function SingleInstallmentPage() {
           const cpf = (loadedOrder.customer?.cpf || '').replace(/\D/g, '');
           const needsCustomerDetails =
             !loadedOrder.customer?.code ||
+            !loadedOrder.customer?.phone ||
             !loadedOrder.customer?.address ||
             !loadedOrder.customer?.number ||
             !loadedOrder.customer?.neighborhood ||
@@ -261,6 +272,10 @@ export default function SingleInstallmentPage() {
                   customer: {
                     ...loadedOrder.customer,
                     code: loadedOrder.customer.code || customerData.code,
+                    phone: loadedOrder.customer.phone || customerData.phone || '',
+                    phone2: loadedOrder.customer.phone2 || customerData.phone2,
+                    phone3: loadedOrder.customer.phone3 || customerData.phone3,
+                    email: loadedOrder.customer.email || customerData.email,
                     address: loadedOrder.customer.address || customerData.address || '',
                     number: loadedOrder.customer.number || customerData.number || '',
                     complement: loadedOrder.customer.complement || customerData.complement,

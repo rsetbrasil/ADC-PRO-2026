@@ -74,6 +74,15 @@ const CarnetContent = ({ order, settings, pixPayload, productCodeById }: { order
         order.customer.state,
         order.customer.zip,
     ]);
+    const customerPhonesText = useMemo(() => {
+        const phones = [order.customer.phone, order.customer.phone2, order.customer.phone3]
+            .map((p) => (p || '').trim())
+            .filter(Boolean);
+        return phones.join(' / ');
+    }, [order.customer.phone, order.customer.phone2, order.customer.phone3]);
+    const customerEmailText = useMemo(() => {
+        return (order.customer.email || '').trim();
+    }, [order.customer.email]);
 
     return (
     <div className="carnet-content-wrapper bg-white text-black break-inside-avoid-page print:p-0 text-sm print:text-[11px] print:leading-[1.25] flex flex-col relative">
@@ -116,6 +125,10 @@ const CarnetContent = ({ order, settings, pixPayload, productCodeById }: { order
                 <p className="carnet-customer-value font-semibold">
                     {order.customer.cpf || ''}
                 </p>
+                <p className="carnet-label text-[9px] text-muted-foreground mt-0 print:mt-0">TELEFONE(S)</p>
+                <p className="carnet-customer-value font-semibold">{customerPhonesText}</p>
+                <p className="carnet-label text-[9px] text-muted-foreground mt-0 print:mt-0">E-MAIL</p>
+                <p className="carnet-customer-value font-semibold">{customerEmailText || '-'}</p>
                 <p className="carnet-label text-[9px] text-muted-foreground mt-0 print:mt-0">VENDEDOR(A)</p>
                 <p className="carnet-customer-value font-semibold">{order.sellerName}</p>
                 <p className="carnet-label text-[9px] text-muted-foreground mt-0 print:mt-0">DATA DA COMPRA</p>
@@ -261,6 +274,7 @@ export default function CarnetPage() {
           const cpf = (loadedOrder.customer?.cpf || '').replace(/\D/g, '');
           const needsCustomerDetails =
             !loadedOrder.customer?.code ||
+            !loadedOrder.customer?.phone ||
             !loadedOrder.customer?.address ||
             !loadedOrder.customer?.number ||
             !loadedOrder.customer?.neighborhood ||
@@ -279,6 +293,10 @@ export default function CarnetPage() {
                   customer: {
                     ...loadedOrder.customer,
                     code: loadedOrder.customer.code || customerData.code,
+                    phone: loadedOrder.customer.phone || customerData.phone || '',
+                    phone2: loadedOrder.customer.phone2 || customerData.phone2,
+                    phone3: loadedOrder.customer.phone3 || customerData.phone3,
+                    email: loadedOrder.customer.email || customerData.email,
                     address: loadedOrder.customer.address || customerData.address || '',
                     number: loadedOrder.customer.number || customerData.number || '',
                     complement: loadedOrder.customer.complement || customerData.complement,
