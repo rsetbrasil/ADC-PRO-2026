@@ -415,6 +415,14 @@ export default function CarnetPage() {
              <p className="text-muted-foreground">Pedido: {order.id}</p>
           </div>
           <div className="flex gap-2">
+            {nextPendingInstallment && (
+              <Button
+                variant="secondary"
+                onClick={() => window.open(`/carnet/${order.id}/${nextPendingInstallment.installmentNumber}`, '_blank')}
+              >
+                Cobrar Parcela
+              </Button>
+            )}
             <Button variant="outline" onClick={() => handlePrint('default')}>
                 <Printer className="mr-2 h-4 w-4" />
                 Carnê Duas Vias

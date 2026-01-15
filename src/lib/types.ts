@@ -12,6 +12,8 @@ export type StoreSettings = {
     commercialHourEnd?: string;
     wapiInstance?: string;
     wapiToken?: string;
+    stripeEnabled?: boolean;
+    mercadopagoEnabled?: boolean;
 };
 
 
@@ -81,7 +83,7 @@ export type Payment = {
   id: string;
   amount: number;
   date: string;
-  method: 'Dinheiro' | 'Pix' | 'Cartão (Crédito)' | 'Cartão (Débito)';
+  method: 'Dinheiro' | 'Pix' | 'Cartão (Crédito)' | 'Cartão (Débito)' | 'Stripe' | 'MercadoPago';
   change?: number;
   receivedBy?: string; // User name
 }
@@ -97,7 +99,7 @@ export type Installment = {
   payments: Payment[];
 }
 
-export type PaymentMethod = 'Crediário' | 'Pix' | 'Dinheiro';
+export type PaymentMethod = 'Crediário' | 'Pix' | 'Dinheiro' | 'Stripe' | 'MercadoPago';
 
 export type Order = {
   id: string;
@@ -112,6 +114,11 @@ export type Order = {
   firstDueDate?: Date;
   status: 'Processando' | 'Enviado' | 'Entregue' | 'Cancelado' | 'Excluído';
   paymentMethod: PaymentMethod;
+  paymentStatus?: 'Pendente' | 'Pago' | 'Falhou';
+  paymentProvider?: 'Stripe' | 'MercadoPago';
+  paymentSessionId?: string;
+  paymentPreferenceId?: string;
+  paymentCheckoutUrl?: string;
   installmentDetails: Installment[];
   attachments?: Attachment[];
   sellerId?: string;

@@ -48,6 +48,8 @@ const settingsSchema = z.object({
   accessControlEnabled: z.boolean().optional(),
   commercialHourStart: z.string().optional(),
   commercialHourEnd: z.string().optional(),
+  stripeEnabled: z.boolean().optional(),
+  mercadopagoEnabled: z.boolean().optional(),
 });
 
 type RestorePoint = {
@@ -181,6 +183,8 @@ export default function ConfiguracaoPage() {
         accessControlEnabled: false,
         commercialHourStart: '08:00',
         commercialHourEnd: '18:00',
+        stripeEnabled: false,
+        mercadopagoEnabled: false,
     },
   });
 
@@ -190,6 +194,8 @@ export default function ConfiguracaoPage() {
           ...settings,
           commercialHourStart: settings.commercialHourStart || '08:00',
           commercialHourEnd: settings.commercialHourEnd || '18:00',
+          stripeEnabled: !!settings.stripeEnabled,
+          mercadopagoEnabled: !!settings.mercadopagoEnabled,
       });
     }
   }, [settingsLoading, settings, form]);
@@ -768,6 +774,58 @@ export default function ConfiguracaoPage() {
           </Form>
         </CardContent>
       </Card>
+
+      {user?.role === 'admin' && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2">
+              <DollarSign className="h-6 w-6" />
+              Pagamentos Online
+            </CardTitle>
+            <CardDescription>Ative ou desative opções de pagamento no checkout.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <Form {...form}>
+              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
+                <FormField
+                  control={form.control}
+                  name="stripeEnabled"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                      <div className="space-y-0.5">
+                        <FormLabel className="text-base">Habilitar Stripe</FormLabel>
+                        <FormDescription>Mostra Stripe no checkout do catálogo online.</FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch checked={field.value} onCheckedChange={field.onChange} />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+                <FormField
+                  control={form.control}
+                  name="mercadopagoEnabled"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                      <div className="space-y-0.5">
+                        <FormLabel className="text-base">Habilitar Mercado Pago</FormLabel>
+                        <FormDescription>Mostra Mercado Pago no checkout do catálogo online.</FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch checked={field.value} onCheckedChange={field.onChange} />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+                <Button type="submit">
+                  <Save className="mr-2 h-4 w-4" />
+                  Salvar Pagamentos
+                </Button>
+              </form>
+            </Form>
+          </CardContent>
+        </Card>
+      )}
 
       {user?.role === 'admin' && (
         <Card>

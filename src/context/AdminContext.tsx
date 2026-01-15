@@ -401,9 +401,19 @@ export const AdminProvider = ({ children }: { children: ReactNode }) => {
         const customerKey = customer.cpf?.replace(/\D/g, '') || `${customer.name}-${customer.phone}`;
         const ordersForCustomer = (customerOrders[customerKey] || []).filter(o => o.status !== 'Excluído' && o.status !== 'Cancelado');
         
-        const allInstallments = ordersForCustomer.flatMap(order => order.installmentDetails || []);
         const totalComprado = ordersForCustomer.reduce((acc, order) => acc + order.total, 0);
-        const totalPago = allInstallments.reduce((sum, inst) => sum + (inst.paidAmount || 0), 0);
+        const totalPago = ordersForCustomer.reduce((sum, order) => {
+          if (order.paymentMethod === 'Crediário') {
+            const paid = (order.installmentDetails || []).reduce((s, inst) => s + (inst.paidAmount || 0), 0);
+            return sum + paid;
+          }
+
+          if ((order.paymentMethod === 'Stripe' || order.paymentMethod === 'MercadoPago') && order.paymentStatus !== 'Pago') {
+            return sum;
+          }
+
+          return sum + (order.total || 0);
+        }, 0);
         const saldoDevedor = totalComprado - totalPago;
         financialsByCustomer[customerKey] = { totalComprado, totalPago, saldoDevedor };
       });
@@ -460,7 +470,11 @@ export const AdminProvider = ({ children }: { children: ReactNode }) => {
             }
             });
         } else {
-            totalRecebido += order.total;
+            if ((order.paymentMethod === 'Stripe' || order.paymentMethod === 'MercadoPago') && order.paymentStatus !== 'Pago') {
+              totalPendente += order.total;
+            } else {
+              totalRecebido += order.total;
+            }
         }
     });
     
