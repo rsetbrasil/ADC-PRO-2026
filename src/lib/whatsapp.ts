@@ -45,9 +45,46 @@ const createClient = () => {
     fs.mkdirSync(authDir, { recursive: true });
   } catch {}
 
+  const cacheDir = isServerless ? path.join('/tmp', 'puppeteer') : path.join(process.cwd(), '.puppeteer');
+  if (!process.env.PUPPETEER_CACHE_DIR) {
+    process.env.PUPPETEER_CACHE_DIR = cacheDir;
+  }
+  try {
+    fs.mkdirSync(process.env.PUPPETEER_CACHE_DIR, { recursive: true });
+  } catch {}
+
+  const execPathFromEnv =
+    (process.env.PUPPETEER_EXECUTABLE_PATH || '').trim() ||
+    (process.env.GOOGLE_CHROME_BIN || '').trim() ||
+    (process.env.CHROMIUM_PATH || '').trim();
+
+  const candidates = [
+    execPathFromEnv,
+    '/usr/bin/google-chrome-stable',
+    '/usr/bin/google-chrome',
+    '/usr/bin/chromium-browser',
+    '/usr/bin/chromium',
+    'C:\\Program Files\\Google\\Chrome\\Application\\chrome.exe',
+    'C:\\Program Files (x86)\\Google\\Chrome\\Application\\chrome.exe',
+  ].filter(Boolean);
+
+  const resolvedExecPath =
+    candidates.find((p) => {
+      try {
+        return fs.existsSync(p);
+      } catch {
+        return false;
+      }
+    }) || (execPathFromEnv || '');
+
+  const puppeteerOpts: any = { headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] };
+  if (resolvedExecPath) {
+    puppeteerOpts.executablePath = resolvedExecPath;
+  }
+
   return new Client({
     authStrategy: new LocalAuth({ clientId: 'adceletrodomesticos', dataPath: authDir }),
-    puppeteer: { headless: true, args: ['--no-sandbox', '--disable-setuid-sandbox'] },
+    puppeteer: puppeteerOpts,
   });
 };
 
@@ -194,12 +231,43 @@ export const startWhatsApp = async () => {
   state.lastError = null;
   emitter.emit('event', { type: 'state', data: { status: state.status, qr: state.qr, lastError: state.lastError } } satisfies WhatsAppEvent);
 
+  const isServerless =
+    !!process.env.VERCEL ||
+    !!process.env.AWS_LAMBDA_FUNCTION_NAME ||
+    !!process.env.LAMBDA_TASK_ROOT ||
+    !!process.env.NOW_REGION;
+  const execPath =
+    (process.env.PUPPETEER_EXECUTABLE_PATH || '').trim() ||
+    (process.env.GOOGLE_CHROME_BIN || '').trim() ||
+    (process.env.CHROMIUM_PATH || '').trim();
+  const hasExecPath = (() => {
+    if (!execPath) return false;
+    try {
+      return fs.existsSync(execPath);
+    } catch {
+      return false;
+    }
+  })();
+  if (isServerless && !hasExecPath) {
+    const msg =
+      'Chrome/Chromium não encontrado no ambiente. Defina PUPPETEER_EXECUTABLE_PATH (ou GOOGLE_CHROME_BIN/CHROMIUM_PATH) apontando para um binário existente, ou execute o WhatsApp em um servidor com Chrome instalado.';
+    state.status = 'error';
+    state.lastError = msg;
+    emitter.emit('event', { type: 'error', data: { message: msg } } satisfies WhatsAppEvent);
+    emitState();
+    return getWhatsAppStatus();
+  }
+
   if (!state.initialized) {
     state.initialized = true;
     try {
       await client.initialize();
     } catch (e) {
-      const message = e instanceof Error ? e.message : 'Falha ao inicializar WhatsApp.';
+      let message = e instanceof Error ? e.message : 'Falha ao inicializar WhatsApp.';
+      if (/could not find chrome/i.test(message) || /could not find chromium/i.test(message)) {
+        message =
+          'Chrome/Chromium não encontrado. Em produção, configure PUPPETEER_EXECUTABLE_PATH para um Chrome/Chromium disponível. Em ambiente local, instale o navegador do Puppeteer (ex.: `npx puppeteer browsers install chrome`) ou use um Chrome instalado e defina PUPPETEER_EXECUTABLE_PATH.';
+      }
       state.status = 'error';
       state.lastError = message;
       state.initialized = false;
